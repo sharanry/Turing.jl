@@ -5,6 +5,8 @@ toc: true
 toc_sticky: true
 ---
 
+If you need to get more into the internals of Turing, this section contains information on defining custom distributions, the mechanics of task copying, and how to calculate the maximum a posteriori estimate.
+
 ## How to Define a Customized Distribution
 
 Turing.jl supports the use of distributions from the Distributions.jl package. By extension it also supports the use of customized distributions, by defining them as subtypes of `Distribution` type of the Distributions.jl package, as well as corresponding functions.
