@@ -24,60 +24,45 @@ Tips:
 methods like Particle Gibbs. You can increase the effectiveness of particle sampling by including
 more particles in the particle sampler.
 """
-mutable struct Gibbs{A} <: InferenceAlgorithm
+mutable struct Gibbs{space, A} <: AbstractGibbs
     n_iters   ::  Int     # number of Gibbs iterations
     algs      ::  A   # component sampling algorithms
     thin      ::  Bool    # if thinning to output only after a whole Gibbs sweep
     gid       ::  Int
 end
-Gibbs(n_iters::Int, algs...; thin=true) = Gibbs(n_iters, algs, thin, 0)
+function Gibbs(n_iters::Int, algs...; thin=true)
+    Gibbs{buildspace(algs), typeof(algs)}(n_iters, algs, thin, 0)
+end
 Gibbs(alg::Gibbs, new_gid) = Gibbs(alg.n_iters, alg.algs, alg.thin, new_gid)
 
 const GibbsComponent = Union{Hamiltonian,MH,PG}
 
+@inline function get_gibbs_samplers(subalgs, model, n, alg, alg_str)
+    if length(subalgs) == 0
+        return ()
+    else
+        subalg = subalgs[1]
+        if isa(subalg, GibbsComponent)
+            return (Sampler(typeof(subalg)(subalg, n + 1 - length(subalgs)), model), get_gibbs_samplers(Base.tail(subalgs), model, n, alg, alg_str)...)
+        else
+            error("[$alg_str] unsupport base sampling algorithm $alg")
+        end
+    end
+end  
+
 function Sampler(alg::Gibbs, model::Model)
     n_samplers = length(alg.algs)
-    samplers = Array{Sampler}(undef, n_samplers)
-
-    space = Set{Symbol}()
-
-    for i in 1:n_samplers
-        sub_alg = alg.algs[i]
-        if isa(sub_alg, GibbsComponent)
-            samplers[i] = Sampler(typeof(sub_alg)(sub_alg, i), model)
-        else
-            @error("[Gibbs] unsupport base sampling algorithm $alg")
-        end
-        space = union(space, sub_alg.space)
-    end
-
-    # Sanity check for space
-    @assert issubset(Set(get_pvars(model)), space) "[Gibbs] symbols specified to samplers ($space) doesn't cover the model parameters ($(Set(get_pvars(model))))"
-
-    if Set(get_pvars(model)) != space
-        @warn("[Gibbs] extra parameters specified by samplers don't exist in model: $(setdiff(space, Set(get_pvars(model))))")
-    end
-
+    alg_str = "Gibbs"
+    samplers = get_gibbs_samplers(alg.algs, model, n_samplers, alg, alg_str)
+    space = buildspace(alg.algs)
+    verifyspace(space, model.pvars, alg_str)
     info = Dict{Symbol, Any}()
     info[:samplers] = samplers
 
     Sampler(alg, info)
 end
 
-function sample(
-                model::Model,
-                alg::Gibbs;
-                save_state=false,         # flag for state saving
-                resume_from=nothing,      # chain to continue
-                reuse_spl_n=0             # flag for spl re-using
-                )
-
-    # Init the (master) Gibbs sampler
-    spl = reuse_spl_n > 0 ? resume_from.info[:spl] : Sampler(alg, model)
-
-    @assert typeof(spl.alg) == typeof(alg) "[Turing] alg type mismatch; please use resume() to re-use spl"
-
-    # Initialize samples
+function get_sample_n(alg::Gibbs; reuse_spl_n = 0, kwargs...)
     sub_sample_n = []
     for sub_alg in alg.algs
         if isa(sub_alg, GibbsComponent)
@@ -91,25 +76,22 @@ function sample(
     n = reuse_spl_n > 0 ? reuse_spl_n : alg.n_iters
     sample_n = n * (alg.thin ? 1 : sum(sub_sample_n))
 
+    return sample_n
+end
+
+function _sample(varInfo,
+                samples,
+                spl,
+                model,
+                alg::Gibbs;
+                save_state=false,         # flag for state saving
+                resume_from=nothing,      # chain to continue
+                reuse_spl_n=0,             # flag for spl re-using
+                )
+
     # Init samples
     time_total = zero(Float64)
-    samples = Array{Sample}(undef, sample_n)
-    weight = 1 / sample_n
-    for i = 1:sample_n
-        samples[i] = Sample(weight, Dict{Symbol, Any}())
-    end
-
-    # Init parameters
-    varInfo = if resume_from == nothing
-        vi_ = VarInfo()
-        model(vi_, HamiltonianRobustInit())
-        vi_
-    else
-        resume_from.info[:vi]
-    end
-
     n = spl.alg.n_iters; i_thin = 1
-
     # Gibbs steps
     PROGRESS[] && (spl.info[:progress] = ProgressMeter.Progress(n, 1, "[Gibbs] Sampling...", 0))
     for i = 1:n
@@ -120,7 +102,6 @@ function sample(
 
         for local_spl in spl.info[:samplers]
             last_spl = local_spl
-      # PROGRESS[] && haskey(spl.info, :progress) && (local_spl.info[:progress] = spl.info[:progress])
 
             Turing.DEBUG && @debug "$(typeof(local_spl)) stepping..."
 

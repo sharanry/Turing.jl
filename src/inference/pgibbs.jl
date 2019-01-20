@@ -17,30 +17,31 @@ Example:
 ```julia
 # Define a simple Normal model with unknown mean and variance.
 @model gdemo(x) = begin
-  s ~ InverseGamma(2,3)
-  m ~ Normal(0, sqrt(s))
-  x[1] ~ Normal(m, sqrt(s))
-  x[2] ~ Normal(m, sqrt(s))
-  return s, m
+    s ~ InverseGamma(2,3)
+    m ~ Normal(0, sqrt(s))
+    x[1] ~ Normal(m, sqrt(s))
+    x[2] ~ Normal(m, sqrt(s))
+    return s, m
 end
 
 sample(gdemo([1.5, 2]), PG(100, 100))
 ```
 """
-mutable struct PG{T, F} <: InferenceAlgorithm
-  n_particles           ::    Int         # number of particles used
-  n_iters               ::    Int         # number of iterations
-  resampler             ::    F           # function to resample
-  space                 ::    Set{T}      # sampling space, emtpy means all
-  gid                   ::    Int         # group ID
+mutable struct PG{space, F} <: AbstractGibbs
+    n_particles           ::    Int         # number of particles used
+    n_iters               ::    Int         # number of iterations
+    resampler             ::    F           # function to resample
+    gid                   ::    Int         # group ID
 end
-PG(n1::Int, n2::Int) = PG(n1, n2, resample_systematic, Set(), 0)
+PG(n1::Int, n2::Int) = PG{(), typeof(resample_systematic)}(n1, n2, resample_systematic, 0)
 function PG(n1::Int, n2::Int, space...)
-  _space = isa(space, Symbol) ? Set([space]) : Set(space)
-  PG(n1, n2, resample_systematic, _space, 0)
+    F = typeof(resample_systematic)
+    PG{space, F}(n1, n2, resample_systematic, 0)
 end
-PG(alg::PG, new_gid::Int) = PG(alg.n_particles, alg.n_iters, alg.resampler, alg.space, new_gid)
-PG{T, F}(alg::PG, new_gid::Int) where {T, F} = PG{T, F}(alg.n_particles, alg.n_iters, alg.resampler, alg.space, new_gid)
+function PG(alg::PG{space, F}, new_gid::Int) where {space, F}
+    return PG{space, F}(alg.n_particles, alg.n_iters, alg.resampler, new_gid)
+end
+PG{space, F}(alg::PG, new_gid::Int) where {space, F} = PG{space, F}(alg.n_particles, alg.n_iters, alg.resampler, new_gid)
 
 const CSMC = PG # type alias of PG as Conditional SMC
 
@@ -50,9 +51,9 @@ function Sampler(alg::PG)
     Sampler(alg, info)
 end
 
-step(model, spl::Sampler{<:PG}, vi::VarInfo, _) = step(model, spl, vi)
+step(model, spl::Sampler{<:PG}, vi::AbstractVarInfo, _) = step(model, spl, vi)
 
-function step(model, spl::Sampler{<:PG}, vi::VarInfo)
+function step(model, spl::Sampler{<:PG}, vi::AbstractVarInfo)
     particles = ParticleContainer{Trace}(model)
 
     vi.num_produce = 0;  # Reset num_produce before new sweep\.
@@ -82,34 +83,31 @@ function step(model, spl::Sampler{<:PG}, vi::VarInfo)
     return particles[indx].vi, true
 end
 
-function sample(  model::Model, 
-                  alg::PG;
+init_samples(alg::PG, kwargs...) = Vector{Sample}()
+function init_varinfo(model, spl::Sampler{<:PG}; resume_from = nothing, kwargs...)
+    if resume_from == nothing
+        return VarInfo()
+    else
+        return resume_from.info[:vi]
+    end
+end
+
+function _sample(vi, samples, spl, model, alg::PG;
                   save_state=false,         # flag for state saving
                   resume_from=nothing,      # chain to continue
                   reuse_spl_n=0             # flag for spl re-using
                 )
-    
-    spl = reuse_spl_n > 0 ?
-          resume_from.info[:spl] :
-          Sampler(alg)
-
-    @assert typeof(spl.alg) == typeof(alg) "[Turing] alg type mismatch; please use resume() to re-use spl"
-
-    n = reuse_spl_n > 0 ?
-        reuse_spl_n :
-        alg.n_iters
-    samples = Vector{Sample}()
 
     ## custom resampling function for pgibbs
     ## re-inserts reteined particle after each resampling step
     time_total = zero(Float64)
-
-    vi = resume_from == nothing ?
-        VarInfo() :
-        resume_from.info[:vi]
-
     pm = nothing
-    PROGRESS[] && (spl.info[:progress] = ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0))
+    n = reuse_spl_n > 0 ?
+        reuse_spl_n :
+        alg.n_iters
+    if PROGRESS[]
+        spl.info[:progress] = ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0)
+    end
 
     for i = 1:n
         time_elapsed = @elapsed vi, _ = step(model, spl, vi)
@@ -140,17 +138,12 @@ function sample(  model::Model,
         save!(c, spl, model, vi)
     end
 
-    return c
+    c
 end
 
-function assume(  spl::Sampler{T}, 
-                  dist::Distribution, 
-                  vn::VarName, 
-                  _::VarInfo
-                ) where T<:Union{PG,SMC}
-
+function assume(spl::Sampler{T}, dist::Distribution, vn::VarName, _::AbstractVarInfo) where T<:Union{PG,SMC}
     vi = current_trace().vi
-    if isempty(spl.alg.space) || vn.sym in spl.alg.space
+    if isempty(getspace(spl)) || vn.sym in getspace(spl)
         if ~haskey(vi, vn)
             r = rand(dist)
             push!(vi, vn, r, dist, spl.alg.gid)
@@ -174,27 +167,24 @@ function assume(  spl::Sampler{T},
         end
         acclogp!(vi, logpdf_with_trans(dist, r, istrans(vi, vn)))
     end
-    return r, zero(Real)
+    r, zero(Real)
 end
 
-function assume(  spl::Sampler{A}, 
-                  dists::Vector{D}, 
-                  vn::VarName, 
-                  var::Any, 
-                  vi::VarInfo
-                ) where {A<:Union{PG,SMC},D<:Distribution}
+function assume(
+                spl::Sampler{A}, 
+                dists::Vector{D}, 
+                vn::VarName, 
+                var::Any, 
+                vi::AbstractVarInfo
+              ) where {A <: Union{PG,SMC}, D <: Distribution}
     error("[Turing] PG and SMC doesn't support vectorizing assume statement")
 end
 
 function observe(spl::Sampler{T}, dist::Distribution, value, vi) where T<:Union{PG,SMC}
     produce(logpdf(dist, value))
-    return zero(Real)
+    zero(Real)
 end
 
-function observe( spl::Sampler{A}, 
-                  ds::Vector{D}, 
-                  value::Any, 
-                  vi::VarInfo
-                ) where {A<:Union{PG,SMC},D<:Distribution}
+function observe(spl::Sampler{A}, ds::Vector{D}, value::Any, vi::AbstractVarInfo) where {A<:Union{PG,SMC},D<:Distribution}
     error("[Turing] PG and SMC doesn't support vectorizing observe statement")
 end

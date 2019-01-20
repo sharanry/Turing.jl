@@ -59,6 +59,11 @@ end
 @generated function in_dvars(::Val{sym}, ::Model{params, data}) where {sym, params, data}
     return sym in data.types ? :(true) : :(false)
 end
+function Base.getproperty(m::Model, f::Symbol)
+    f === :pvars && return get_pvars(m)
+    return getfield(m, f)
+end
+
 (model::Model)(args...; kwargs...) = model.f(args..., model; kwargs...)
 function runmodel! end
 
@@ -80,6 +85,9 @@ mutable struct Sampler{T} <: AbstractSampler
     info  ::  Dict{Symbol, Any}         # sampler infomation
 end
 Sampler(alg, model) = Sampler(alg)
+
+getspace(spl::Sampler) = getspace(typeof(spl))
+getspace(::Type{<:Sampler{A}}) where A = getspace(A)
 
 include("utilities/Utilities.jl")
 using .Utilities

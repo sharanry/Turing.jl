@@ -43,37 +43,27 @@ sample(gdemo([1.5, 2]), HMC(1000, 0.1, 10))
 sample(gdemo([1.5, 2]), HMC(1000, 0.01, 10))
 ```
 """
-mutable struct HMC{AD, T} <: StaticHamiltonian{AD}
+mutable struct HMC{AD, space} <: StaticHamiltonian{AD}
     n_iters   ::  Int       # number of samples
     epsilon   ::  Float64   # leapfrog step size
     tau       ::  Int       # leapfrog step number
-    space     ::  Set{T}    # sampling space, emtpy means all
     gid       ::  Int       # group ID
 end
 HMC(args...) = HMC{ADBackend()}(args...)
 function HMC{AD}(epsilon::Float64, tau::Int, space...) where AD
-    _space = isa(space, Symbol) ? Set([space]) : Set(space)
-    return HMC{AD, eltype(_space)}(1, epsilon, tau, _space, 0)
+    return HMC{AD, space}(1, epsilon, tau, 0)
 end
 function HMC{AD}(n_iters::Int, epsilon::Float64, tau::Int) where AD
-    return HMC{AD, Any}(n_iters, epsilon, tau, Set(), 0)
+    return HMC{AD, ()}(n_iters, epsilon, tau, 0)
 end
 function HMC{AD}(n_iters::Int, epsilon::Float64, tau::Int, space...) where AD
-    _space = isa(space, Symbol) ? Set([space]) : Set(space)
-    return HMC{AD, eltype(_space)}(n_iters, epsilon, tau, _space, 0)
+    return HMC{AD, space}(n_iters, epsilon, tau, 0)
 end
-function HMC{AD1}(alg::HMC{AD2, T}, new_gid::Int) where {AD1, AD2, T}
-    return HMC{AD1, T}(alg.n_iters, alg.epsilon, alg.tau, alg.space, new_gid)
+function HMC{AD1}(alg::HMC{AD2, space}, new_gid::Int) where {AD1, AD2, space}
+    return HMC{AD1, space}(alg.n_iters, alg.epsilon, alg.tau, new_gid)
 end
-function HMC{AD, T}(alg::HMC, new_gid::Int) where {AD, T}
-    return HMC{AD, T}(alg.n_iters, alg.epsilon, alg.tau, alg.space, new_gid)
-end
-
-function hmc_step(θ, lj, lj_func, grad_func, H_func, ϵ, alg::HMC, momentum_sampler::Function;
-                  rev_func=nothing, log_func=nothing)
-  θ_new, lj_new, is_accept, τ_valid, α = _hmc_step(
-            θ, lj, lj_func, grad_func, H_func, alg.tau, ϵ, momentum_sampler; rev_func=rev_func, log_func=log_func)
-  return θ_new, lj_new, is_accept, α
+function HMC{AD, space}(alg::HMC, new_gid::Int) where {AD, space}
+    return HMC{AD, space}(alg.n_iters, alg.epsilon, alg.tau, new_gid)
 end
 
 # Below is a trick to remove the dependency of Stan by Requires.jl
@@ -98,18 +88,53 @@ function _sampler(alg::Hamiltonian, adapt_conf)
     Sampler(alg, info)
 end
 
-function sample(model::Model, alg::Hamiltonian;
+function hmc_step(θ, lj, lj_func, grad_func, H_func, ϵ, alg::HMC, momentum_sampler::Function;
+                  rev_func=nothing, log_func=nothing)
+    θ_new, lj_new, is_accept, τ_valid, α = _hmc_step(
+                θ, lj, lj_func, grad_func, H_func, alg.tau, ϵ, momentum_sampler; rev_func=rev_func, log_func=log_func)
+    return θ_new, lj_new, is_accept, α
+end
+
+function get_sampler(model, alg::Hamiltonian; 
+                            reuse_spl_n = 0, 
+                            resume_from = nothing, 
+                            adapt_conf=STAN_DEFAULT_ADAPT_CONF, 
+                            kwargs...,
+                    )
+    if reuse_spl_n > 0
+        spl = resume_from.info[:spl]
+    else
+        spl = Sampler(alg, adapt_conf)
+    end
+    @assert isa(spl.alg, Hamiltonian) "[Turing] alg type mismatch; please use resume() to re-use spl"
+
+    return spl
+end
+
+function get_sample_n(alg::Hamiltonian; reuse_spl_n = 0, kwargs...)
+    return reuse_spl_n > 0 ? reuse_spl_n : alg.n_iters
+end
+
+function init_varinfo(model, spl::Sampler{<:Hamiltonian}; resume_from = nothing, kwargs...)
+    if resume_from == nothing
+        spl.info[:eval_num] += 1
+        return TypedVarInfo(default_varinfo(model, spl))
+    else
+        return deepcopy(resume_from.info[:vi])
+    end
+end
+
+function _sample(vi, samples, spl, model, alg::Hamiltonian;
+                                chunk_size=CHUNKSIZE[],             # set temporary chunk size
                                 save_state=false,                   # flag for state saving
                                 resume_from=nothing,                # chain to continue
                                 reuse_spl_n=0,                      # flag for spl re-using
                                 adapt_conf=STAN_DEFAULT_ADAPT_CONF, # adapt configuration
                 )
-    
-    spl = reuse_spl_n > 0 ?
-          resume_from.info[:spl] :
-          Sampler(alg, adapt_conf)
-
-    @assert isa(spl.alg, Hamiltonian) "[Turing] alg type mismatch; please use resume() to re-use spl"
+    if ADBACKEND[] == :forward_diff
+        default_chunk_size = CHUNKSIZE[]  # record global chunk size
+        setchunksize(chunk_size)        # set temp chunk size
+    end
 
     alg_str = isa(alg, HMC)   ? "HMC"   :
               isa(alg, HMCDA) ? "HMCDA" :
@@ -119,23 +144,6 @@ function sample(model::Model, alg::Hamiltonian;
 
     # Initialization
     time_total = zero(Float64)
-    n = reuse_spl_n > 0 ?
-        reuse_spl_n :
-        alg.n_iters
-    samples = Array{Sample}(undef, n)
-    weight = 1 / n
-    for i = 1:n
-        samples[i] = Sample(weight, Dict{Symbol, Any}())
-    end
-
-    vi = if resume_from == nothing
-        vi_ = VarInfo()
-        model(vi_, HamiltonianRobustInit())
-        spl.info[:eval_num] += 1
-        vi_
-    else
-        deepcopy(resume_from.info[:vi])
-    end
 
     if spl.alg.gid == 0
         link!(vi, spl)
@@ -146,6 +154,7 @@ function sample(model::Model, alg::Hamiltonian;
     total_lf_num = 0
     total_eval_num = 0
     accept_his = Bool[]
+    n = length(samples)
     PROGRESS[] && (spl.info[:progress] = ProgressMeter.Progress(n, 1, "[$alg_str] Sampling...", 0))
     for i = 1:n
         Turing.DEBUG && @debug "$alg_str stepping..."
@@ -160,7 +169,7 @@ function sample(model::Model, alg::Hamiltonian;
         end
         samples[i].value[:elapsed] = time_elapsed
         if haskey(spl.info, :wum)
-          samples[i].value[:lf_eps] = getss(spl.info[:wum])
+            samples[i].value[:lf_eps] = getss(spl.info[:wum])
         end
 
         total_lf_num += spl.info[:lf_num]
@@ -183,6 +192,10 @@ function sample(model::Model, alg::Hamiltonian;
       println("  pre-cond. metric    = $(std_str).")
     end
 
+    if ADBACKEND[] == :forward_diff
+        setchunksize(default_chunk_size)      # revert global chunk size
+    end
+
     if resume_from != nothing   # concat samples
         pushfirst!(samples, resume_from.value2...)
     end
@@ -195,12 +208,12 @@ function sample(model::Model, alg::Hamiltonian;
     return c
 end
 
-function step(model, spl::Sampler{<:StaticHamiltonian}, vi::VarInfo, is_first::Val{true})
+function step(model, spl::Sampler{<:StaticHamiltonian}, vi::AbstractVarInfo, is_first::Val{true})
     spl.info[:wum] = NaiveCompAdapter(UnitPreConditioner(), FixedStepSize(spl.alg.epsilon))
     return vi, true
 end
 
-function step(model, spl::Sampler{<:AdaptiveHamiltonian}, vi::VarInfo, is_first::Val{true})
+function step(model, spl::Sampler{<:AdaptiveHamiltonian}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
     epsilon = find_good_eps(model, spl, vi) # heuristically find good initial epsilon
     dim = length(vi[spl])
@@ -209,7 +222,7 @@ function step(model, spl::Sampler{<:AdaptiveHamiltonian}, vi::VarInfo, is_first:
     return vi, true
 end
 
-function step(model, spl::Sampler{<:Hamiltonian}, vi::VarInfo, is_first::Val{false})
+function step(model, spl::Sampler{<:Hamiltonian}, vi::AbstractVarInfo, is_first::Val{false})
     # Get step size
     ϵ = getss(spl.info[:wum])
     Turing.DEBUG && @debug "current ϵ: $ϵ"
@@ -265,7 +278,7 @@ function step(model, spl::Sampler{<:Hamiltonian}, vi::VarInfo, is_first::Val{fal
     return vi, is_accept
 end
 
-function assume(spl::Sampler{<:Hamiltonian}, dist::Distribution, vn::VarName, vi::VarInfo)
+function assume(spl::Sampler{<:Hamiltonian}, dist::Distribution, vn::VarName, vi::AbstractVarInfo)
     Turing.DEBUG && @debug "assuming..."
     updategid!(vi, vn, spl)
     r = vi[vn]
@@ -277,7 +290,7 @@ function assume(spl::Sampler{<:Hamiltonian}, dist::Distribution, vn::VarName, vi
     r, logpdf_with_trans(dist, r, istrans(vi, vn))
 end
 
-function assume(spl::Sampler{<:Hamiltonian}, dists::Vector{<:Distribution}, vn::VarName, var::Any, vi::VarInfo)
+function assume(spl::Sampler{<:Hamiltonian}, dists::Vector{<:Distribution}, vn::VarName, var::Any, vi::AbstractVarInfo)
     @assert length(dists) == 1 "[observe] Turing only support vectorizing i.i.d distribution"
     dist = dists[1]
     n = size(var)[end]
@@ -308,8 +321,8 @@ function assume(spl::Sampler{<:Hamiltonian}, dists::Vector{<:Distribution}, vn::
     var, sum(logpdf_with_trans(dist, rs, istrans(vi, vns[1])))
 end
 
-observe(spl::Sampler{<:Hamiltonian}, d::Distribution, value::Any, vi::VarInfo) =
+observe(spl::Sampler{<:Hamiltonian}, d::Distribution, value::Any, vi::AbstractVarInfo) =
     observe(nothing, d, value, vi)
 
-observe(spl::Sampler{<:Hamiltonian}, ds::Vector{<:Distribution}, value::Any, vi::VarInfo) =
-    observe(nothing, ds, value, vi)
+observe(spl::Sampler{<:Hamiltonian}, ds::Vector{<:Distribution}, value::Any, vi::AbstractVarInfo) =
+observe(nothing, ds, value, vi)

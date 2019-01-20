@@ -25,33 +25,32 @@ end
 sample(example, SGHMC(1000, 0.01, 0.1))
 ```
 """
-mutable struct SGHMC{AD, T} <: StaticHamiltonian{AD}
+mutable struct SGHMC{AD, space} <: StaticHamiltonian{AD}
     n_iters::Int       # number of samples
     learning_rate::Float64   # learning rate
     momentum_decay::Float64   # momentum decay
-    space::Set{T}    # sampling space, emtpy means all
     gid::Int
 end
 SGHMC(args...) = SGHMC{ADBackend()}(args...)
 function SGHMC{AD}(learning_rate::Float64, momentum_decay::Float64, space...) where AD
-    _space = isa(space, Symbol) ? Set([space]) : Set(space)
-    return SGHMC{AD, eltype(_space)}(1, learning_rate, momentum_decay, _space, 0)
+    return SGHMC{AD, space}(1, learning_rate, momentum_decay, 0)
 end
 function SGHMC{AD}(n_iters, learning_rate, momentum_decay) where AD
-    return SGHMC{AD, Any}(n_iters, learning_rate, momentum_decay, Set(), 0)
+    return SGHMC{AD, ()}(n_iters, learning_rate, momentum_decay, 0)
 end
 function SGHMC{AD}(n_iters, learning_rate, momentum_decay, space...) where AD
-    _space = isa(space, Symbol) ? Set([space]) : Set(space)
-    return SGHMC{AD, eltype(_space)}(n_iters, learning_rate, momentum_decay, _space, 0)
+    return SGHMC{AD, space}(n_iters, learning_rate, momentum_decay, 0)
 end
-function SGHMC{AD1}(alg::SGHMC{AD2, T}, new_gid::Int) where {AD1, AD2, T}
-    return SGHMC{AD1, T}(alg.n_iters, alg.learning_rate, alg.momentum_decay, alg.space, new_gid)
+function SGHMC{AD1}(alg::SGHMC{AD2, space}, new_gid::Int) where {AD1, AD2, space}
+    return SGHMC{AD1, space}(alg.n_iters, alg.learning_rate, alg.momentum_decay, new_gid)
 end
-function SGHMC{AD, T}(alg::SGHMC, new_gid::Int) where {AD, T}
-    return SGHMC{AD, T}(alg.n_iters, alg.learning_rate, alg.momentum_decay, alg.space, new_gid)
+function SGHMC{AD, space}(alg::SGHMC, new_gid::Int) where {AD, space}
+    return SGHMC{AD, space}(alg.n_iters, alg.learning_rate, alg.momentum_decay, new_gid)
 end
 
-function step(model, spl::Sampler{<:SGHMC}, vi::VarInfo, is_first::Val{true})
+getspace(::SGHMC{<:Any, space}) where space = space
+
+function step(model, spl::Sampler{<:SGHMC}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
 
     # Initialize velocity
@@ -62,7 +61,7 @@ function step(model, spl::Sampler{<:SGHMC}, vi::VarInfo, is_first::Val{true})
     return vi, true
 end
 
-function step(model, spl::Sampler{<:SGHMC}, vi::VarInfo, is_first::Val{false})
+function step(model, spl::Sampler{<:SGHMC}, vi::AbstractVarInfo, is_first::Val{false})
     # Set parameters
     η, α = spl.alg.learning_rate, spl.alg.momentum_decay
 

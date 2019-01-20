@@ -27,25 +27,27 @@ end
 sample(gdemo([1.5, 2]), SMC(1000))
 ```
 """
-mutable struct SMC{T, F} <: InferenceAlgorithm
+mutable struct SMC{space, F} <: InferenceAlgorithm
     n_particles           ::  Int
     resampler             ::  F
     resampler_threshold   ::  Float64
-    space                 ::  Set{T}
     gid                   ::  Int
 end
-SMC(n) = SMC(n, resample_systematic, 0.5, Set(), 0)
+SMC(n) = SMC(n, resample_systematic, 0.5, 0)
 function SMC(n_particles::Int, space...)
-    _space = isa(space, Symbol) ? Set([space]) : Set(space)
-    SMC(n_particles, resample_systematic, 0.5, _space, 0)
+    F = typeof(resample_systematic)
+    return SMC{space, F}(n_particles, resample_systematic, 0.5, 0)
 end
-SMC{T, F}(alg::SMC, new_gid::Int) where {T, F} = SMC(alg, new_gid)
-SMC(alg::SMC, new_gid::Int) = SMC(alg.n_particles, alg.resampler, alg.resampler_threshold, alg.space, new_gid)
+function SMC(alg::SMC{space, F}, new_gid::Int) where {space, F}
+    return SMC{space, F}(alg.n_particles, alg.resampler, alg.resampler_threshold, new_gid)
+end
+
+getspace(::SMC{space}) where space = space
 
 function Sampler(alg::SMC)
     info = Dict{Symbol, Any}()
     info[:logevidence] = []
-    return Sampler(alg, info)
+    Sampler(alg, info)
 end
 
 function step(model, spl::Sampler{<:SMC}, vi::VarInfo)
@@ -57,10 +59,10 @@ function step(model, spl::Sampler{<:SMC}, vi::VarInfo)
     push!(particles, spl.alg.n_particles, spl, vi)
 
     while consume(particles) != Val{:done}
-      ess = effectiveSampleSize(particles)
-      if ess <= spl.alg.resampler_threshold * length(particles)
-        resample!(particles,spl.alg.resampler)
-      end
+        ess = effectiveSampleSize(particles)
+        if ess <= spl.alg.resampler_threshold * length(particles)
+            resample!(particles,spl.alg.resampler)
+        end
     end
 
     ## pick a particle to be retained.
@@ -79,10 +81,10 @@ function sample(model::Model, alg::SMC)
     push!(particles, spl.alg.n_particles, spl, VarInfo())
 
     while consume(particles) != Val{:done}
-      ess = effectiveSampleSize(particles)
-      if ess <= spl.alg.resampler_threshold * length(particles)
-        resample!(particles,spl.alg.resampler)
-      end
+        ess = effectiveSampleSize(particles)
+        if ess <= spl.alg.resampler_threshold * length(particles)
+            resample!(particles,spl.alg.resampler)
+        end
     end
     w, samples = getsample(particles)
     res = Chain(w, samples)
