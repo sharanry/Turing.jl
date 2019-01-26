@@ -78,7 +78,8 @@ function TypedVarInfo(vi::UntypedVarInfo)
         sym_flags = Dict(a => vi.flags[a][_inds] for a in keys(vi.flags))
 
         _ranges = getindex.((vi.ranges,), _inds)
-        _vals = [vi.vals[_ranges[i]] for i in sym_inds]
+        # `copy` is a workaround to reduce the eltype from Real to Int or Float64
+        _vals = [copy.(vi.vals[_ranges[i]]) for i in sym_inds]
         sym_ranges = Vector{eltype(_ranges)}(undef, length(sym_inds))
         start = 0
         for i in sym_inds

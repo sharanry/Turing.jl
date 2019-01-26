@@ -1,13 +1,18 @@
-mutable struct Trace
+mutable struct Trace{VI <: AbstractVarInfo}
     task  ::  Task
-    vi    ::  AbstractVarInfo
-    spl   ::  Union{Nothing, Turing.Sampler}
-    Trace() = (res = new(); res.vi = VarInfo(); res.spl = nothing; res)
+    vi    ::  VI
+    spl   ::  Union{Nothing, Sampler}
+    function Trace(vi::AbstractVarInfo = VarInfo())
+        res = new{typeof(vi)}()
+        res.vi = vi
+        res.spl = nothing
+        return res
+    end
 end
 
 # NOTE: this function is called by `forkr`
-function Trace(f)
-    res = Trace();
+function Trace(f, vi = VarInfo())
+    res = Trace(deepcopy(vi));
     # CTask(()->f());
     res.task = CTask( () -> begin res=f(); produce(Val{:done}); res; end )
     if isa(res.task.storage, Nothing)
@@ -17,11 +22,10 @@ function Trace(f)
     return res
 end
 
-function Trace(f, spl::Sampler, vi :: VarInfo)
-    res = Trace();
+function Trace(f, spl::Sampler, vi :: AbstractVarInfo)
+    res = Trace(deepcopy(vi));
     res.spl = spl
     # CTask(()->f());
-    res.vi = deepcopy(vi)
     res.vi.num_produce = 0
     res.task = CTask( () -> begin vi_new=f(vi, spl); produce(Val{:done}); vi_new; end )
     if isa(res.task.storage, Nothing)
@@ -36,15 +40,12 @@ Libtask.consume(t::Trace) = (t.vi.num_produce += 1; consume(t.task))
 
 # Task copying version of fork for Trace.
 function fork(trace :: Trace, is_ref :: Bool = false)
-    newtrace = typeof(trace)()
+    newtrace = Trace(deepcopy(trace.vi))
     newtrace.task = Base.copy(trace.task)
     newtrace.spl = trace.spl
-
-    newtrace.vi = deepcopy(trace.vi)
     if is_ref
         set_retained_vns_del_by_spl!(newtrace.vi, newtrace.spl)
     end
-
     newtrace.task.storage[:turing_trace] = newtrace
     return newtrace
 end
@@ -52,13 +53,10 @@ end
 # PG requires keeping all randomness for the reference particle
 # Create new task and copy randomness
 function forkr(trace :: Trace)
-    newtrace = Trace(trace.task.code)
+    newtrace = Trace(trace.task.code, trace.vi)
     newtrace.spl = trace.spl
-
-    newtrace.vi = deepcopy(trace.vi)
     newtrace.vi.num_produce = 0
-
-    newtrace
+    return newtrace
 end
 
 current_trace() = current_task().storage[:turing_trace]
@@ -71,19 +69,19 @@ Data structure for particle filters
 - normalise!(pc::ParticleContainer)
 - consume(pc::ParticleContainer): return incremental likelihood
 """
-mutable struct ParticleContainer{T<:Particle, F}
+mutable struct ParticleContainer{T<:Particle, F, Tvals <: Array{T}, TlogW <: Array{Float64}}
     model :: F
     num_particles :: Int
-    vals  :: Array{T}
-    logWs :: Array{Float64}  # Log weights (Trace) or incremental likelihoods (ParticleContainer)
-    logE  :: Float64           # Log model evidence
+    vals  :: Tvals
+    logWs :: TlogW       # Log weights (Trace) or incremental likelihoods (ParticleContainer)
+    logE  :: Float64     # Log model evidence
     # conditional :: Union{Nothing,Conditional} # storing parameters, helpful for implementing rejuvenation steps
     conditional :: Nothing # storing parameters, helpful for implementing rejuvenation steps
     n_consume :: Int # helpful for rejuvenation steps, e.g. in SMC2
 end
 ParticleContainer{T}(m) where T = ParticleContainer{T}(m, 0)
-function ParticleContainer{T}(m::F, n::Int) where {T, F}
-    return ParticleContainer{T, F}(m, n, Vector{T}(), Vector{Float64}(), 0.0, nothing, 0)
+function ParticleContainer{T}(m, n::Int) where {T}
+    ParticleContainer(m, n, Vector{T}(), Vector{Float64}(), 0.0, nothing, 0)
 end
 
 Base.collect(pc :: ParticleContainer) = pc.vals # prev: Dict, now: Array
@@ -102,7 +100,7 @@ function Base.push!(pc :: ParticleContainer, p :: Particle)
 end
 Base.push!(pc :: ParticleContainer) = Base.push!(pc, eltype(pc.vals)(pc.model))
 
-function Base.push!(pc :: ParticleContainer, n :: Int, spl :: Sampler, varInfo :: VarInfo)
+function Base.push!(pc :: ParticleContainer, n :: Int, spl :: Sampler, varInfo :: AbstractVarInfo)
     vals  = Vector{eltype(pc.vals)}(undef,n)
     logWs = zeros(eltype(pc.logWs), n)
     for i=1:n
@@ -186,7 +184,8 @@ end
 
 function effectiveSampleSize(pc :: ParticleContainer)
     Ws, _ = weights(pc)
-    ess = 1.0 / sum(Ws .^ 2) # sum(Ws) ^ 2 = 1.0, because weights are normalised
+    # sum(Ws) ^ 2 = 1.0, because weights are normalised
+    return 1.0 / sum(Ws .^ 2) 
 end
 
 function increase_logweight(pc :: ParticleContainer, t :: Int, logw :: Float64)
