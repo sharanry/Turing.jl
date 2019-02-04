@@ -365,12 +365,14 @@ end
         # NOTE: 0b00 is the sanity flag for
         #         |\____ getidcs   (mask = 0b10)
         #         \_____ getranges (mask = 0b01)
-        if ~haskey(spl.info, :cache_updated) spl.info[:cache_updated] = CACHERESET end
-        if haskey(spl.info, :idcs) && (spl.info[:cache_updated] & CACHEIDCS) > 0
-            spl.info[:idcs]
+        if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
+            spl.info.cache_updated = CACHERESET
+        end
+        if isdefined(spl.info, :idcs) && (spl.info.cache_updated & CACHEIDCS) > 0
+            spl.info.idcs
         else
-            spl.info[:cache_updated] = spl.info[:cache_updated] | CACHEIDCS
-            spl.info[:idcs] = $nt
+            spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
+            spl.info.idcs = $nt
         end
     end
 end
@@ -402,12 +404,14 @@ _map(vi, spl, f, idcs) = union(map(i -> getfield(vi.vis, f).ranges[i], idcs)...,
 
     return quote
         idcs = getidcs(vi, spl)
-        if ~haskey(spl.info, :cache_updated) spl.info[:cache_updated] = CACHERESET end
-        if haskey(spl.info, :ranges) && (spl.info[:cache_updated] & CACHERANGES) > 0
-            spl.info[:ranges]
+        if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
+            spl.info.cache_updated = CACHERESET 
+        end
+        if isdefined(spl.info, :ranges) && (spl.info.cache_updated & CACHERANGES) > 0
+            spl.info.ranges
         else
-            spl.info[:cache_updated] = spl.info[:cache_updated] | CACHERANGES
-            spl.info[:ranges] = $nt
+            spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
+            spl.info.ranges = $nt
         end
     end
 end

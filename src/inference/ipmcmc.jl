@@ -94,8 +94,8 @@ function step(model, spl::Sampler{<:IPMCMC}, VarInfos::Array{VarInfo}, is_first:
     # Run SMC & CSMC nodes
     for j in 1:spl.alg.n_nodes
         VarInfos[j].num_produce = 0
-        VarInfos[j] = step(model, spl.info[:samplers][j], VarInfos[j])[1]
-        log_zs[j] = spl.info[:samplers][j].info[:logevidence][end]
+        VarInfos[j] = step(model, spl.info.samplers[j], VarInfos[j])[1]
+        log_zs[j] = spl.info.samplers[j].info[:logevidence][end]
     end
 
     # Resampling of CSMC nodes indices
@@ -135,7 +135,7 @@ function _sample(VarInfos, samples, spl, model, alg::IPMCMC)
 
     # IPMCMC steps
     if PROGRESS[] 
-        spl.info[:progress] = ProgressMeter.Progress(n, 1, "[IPMCMC] Sampling...", 0)
+        spl.info.progress = ProgressMeter.Progress(n, 1, "[IPMCMC] Sampling...", 0)
     end
     for i = 1:n
         Turing.DEBUG && @debug "IPMCMC stepping..."
@@ -148,7 +148,7 @@ function _sample(VarInfos, samples, spl, model, alg::IPMCMC)
 
         time_total += time_elapsed
         if PROGRESS[]
-            haskey(spl.info, :progress) && ProgressMeter.update!(spl.info[:progress], spl.info[:progress].counter + 1)
+            isdefined(spl.info, :progress) && ProgressMeter.update!(spl.info.progress, spl.info.progress.counter + 1)
         end
     end
 

@@ -45,9 +45,15 @@ PG{space, F}(alg::PG, new_gid::Int) where {space, F} = PG{space, F}(alg.n_partic
 
 const CSMC = PG # type alias of PG as Conditional SMC
 
+mutable struct PGInfo
+    logevidence::Float64
+    progress::ProgressMeter.Progress
+    cache_updated::UInt8
+end
+PGInfo(n=0) = PGInfo(NaN, ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0), CACHERESET)
+
 function Sampler(alg::PG)
-    info = Dict{Symbol, Any}()
-    info[:logevidence] = []
+    info = PGInfo()
     Sampler(alg, info)
 end
 
@@ -78,7 +84,7 @@ function step(model, spl::Sampler{<:PG}, vi::AbstractVarInfo)
     ## pick a particle to be retained.
     Ws, _ = weights(particles)
     indx = randcat(Ws)
-    push!(spl.info[:logevidence], particles.logE)
+    push!(spl.info.logevidence, particles.logE)
 
     return particles[indx].vi, true
 end
@@ -88,7 +94,7 @@ function init_varinfo(model, spl::Sampler{<:PG}; resume_from = nothing, kwargs..
     if resume_from == nothing
         return VarInfo()
     else
-        return resume_from.info[:vi]
+        return resume_from.info.vi
     end
 end
 
@@ -106,25 +112,25 @@ function _sample(vi, samples, spl, model, alg::PG;
         reuse_spl_n :
         alg.n_iters
     if PROGRESS[]
-        spl.info[:progress] = ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0)
+        spl.info.progress = ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0)
     end
 
     for i = 1:n
         time_elapsed = @elapsed vi, _ = step(model, spl, vi)
         push!(samples, Sample(vi))
-        samples[i].value[:elapsed] = time_elapsed
+        samples[i].value.elapsed = time_elapsed
 
         time_total += time_elapsed
 
         if PROGRESS[]  && spl.alg.gid == 0
-            ProgressMeter.next!(spl.info[:progress])
+            ProgressMeter.next!(spl.info.progress)
         end
     end
 
     @info("[PG] Finished with")
     @info("  Running time    = $time_total;")
 
-    loge = exp.(mean(spl.info[:logevidence]))
+    loge = exp.(mean(spl.info.logevidence))
     if resume_from != nothing   # concat samples
         pushfirst!(samples, resume_from.value2...)
         pre_loge = resume_from.weight
@@ -147,7 +153,7 @@ function assume(spl::Sampler{T}, dist::Distribution, vn::VarName, _::AbstractVar
         if ~haskey(vi, vn)
             r = rand(dist)
             push!(vi, vn, r, dist, spl.alg.gid)
-            spl.info[:cache_updated] = CACHERESET # sanity flag mask for getidcs and getranges
+            spl.info.cache_updated = CACHERESET # sanity flag mask for getidcs and getranges
         elseif is_flagged(vi, vn, "del")
             unset_flag!(vi, vn, "del")
             r = rand(dist)

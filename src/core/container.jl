@@ -241,7 +241,7 @@ end
 function getsample(pc :: ParticleContainer, i :: Int, w :: Float64 = 0.)
     p = pc.vals[i]
     predicts = Sample(p.vi).value
-    predicts[:le] = pc.logE
+    predicts.le = pc.logE
     return Sample(w, predicts)
 end
 

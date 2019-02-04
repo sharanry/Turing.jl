@@ -117,14 +117,14 @@ end
 
 function init_varinfo(model, spl::Sampler{<:Hamiltonian}; resume_from = nothing, kwargs...)
     if resume_from == nothing
-        spl.info[:eval_num] += 1
+        spl.info.eval_num += 1
         return TypedVarInfo(default_varinfo(model, spl))
     else
-        return deepcopy(resume_from.info[:vi])
+        return deepcopy(resume_from.info.vi)
     end
 end
 
-function _sample(vi, samples, spl, model, alg::Hamiltonian;
+function _sample(vi, samples, spl, model, alg::Hamiltonian,
                                 chunk_size=CHUNKSIZE[],             # set temporary chunk size
                                 save_state=false,                   # flag for state saving
                                 resume_from=nothing,                # chain to continue
@@ -155,7 +155,7 @@ function _sample(vi, samples, spl, model, alg::Hamiltonian;
     total_eval_num = 0
     accept_his = Bool[]
     n = length(samples)
-    PROGRESS[] && (spl.info[:progress] = ProgressMeter.Progress(n, 1, "[$alg_str] Sampling...", 0))
+    PROGRESS[] && (spl.info.progress = ProgressMeter.Progress(n, 1, "[$alg_str] Sampling...", 0))
     for i = 1:n
         Turing.DEBUG && @debug "$alg_str stepping..."
 
@@ -167,15 +167,15 @@ function _sample(vi, samples, spl, model, alg::Hamiltonian;
         else         # rejected => store the previous predcits
             samples[i] = samples[i - 1]
         end
-        samples[i].value[:elapsed] = time_elapsed
-        if haskey(spl.info, :wum)
-            samples[i].value[:lf_eps] = getss(spl.info[:wum])
+        samples[i].value.elapsed = time_elapsed
+        if isdefined(spl.info, :wum)
+            samples[i].value.lf_eps = getss(spl.info.wum)
         end
 
-        total_lf_num += spl.info[:lf_num]
-        total_eval_num += spl.info[:eval_num]
+        total_lf_num += spl.info.lf_num
+        total_eval_num += spl.info.eval_num
         push!(accept_his, is_accept)
-        PROGRESS[] && ProgressMeter.next!(spl.info[:progress])
+        PROGRESS[] && ProgressMeter.next!(spl.info.progress)
     end
 
     println("[$alg_str] Finished with")
@@ -186,8 +186,8 @@ function _sample(vi, samples, spl, model, alg::Hamiltonian;
     end
     println("  #lf / sample        = $(total_lf_num / n);")
     println("  #evals / sample     = $(total_eval_num / n);")
-    if haskey(spl.info, :wum)
-      std_str = string(spl.info[:wum].pc)
+    if isdefined(spl.info, :wum)
+      std_str = string(spl.info.wum.pc)
       std_str = length(std_str) >= 32 ? std_str[1:30]*"..." : std_str   # only show part of pre-cond
       println("  pre-cond. metric    = $(std_str).")
     end
@@ -209,7 +209,7 @@ function _sample(vi, samples, spl, model, alg::Hamiltonian;
 end
 
 function step(model, spl::Sampler{<:StaticHamiltonian}, vi::AbstractVarInfo, is_first::Val{true})
-    spl.info[:wum] = NaiveCompAdapter(UnitPreConditioner(), FixedStepSize(spl.alg.epsilon))
+    spl.info.wum = NaiveCompAdapter(UnitPreConditioner(), FixedStepSize(spl.alg.epsilon))
     return vi, true
 end
 
@@ -217,19 +217,19 @@ function step(model, spl::Sampler{<:AdaptiveHamiltonian}, vi::AbstractVarInfo, i
     spl.alg.gid != 0 && link!(vi, spl)
     epsilon = find_good_eps(model, spl, vi) # heuristically find good initial epsilon
     dim = length(vi[spl])
-    spl.info[:wum] = ThreePhaseAdapter(spl, epsilon, dim)
+    spl.info.wum = ThreePhaseAdapter(spl, epsilon, dim)
     spl.alg.gid != 0 && invlink!(vi, spl)
     return vi, true
 end
 
 function step(model, spl::Sampler{<:Hamiltonian}, vi::AbstractVarInfo, is_first::Val{false})
     # Get step size
-    ϵ = getss(spl.info[:wum])
+    ϵ = getss(spl.info.wum)
     Turing.DEBUG && @debug "current ϵ: $ϵ"
 
     # Reset current counters
-    spl.info[:lf_num] = 0
-    spl.info[:eval_num] = 0
+    spl.info.lf_num = 0
+    spl.info.eval_num = 0
 
     Turing.DEBUG && @debug "X-> R..."
     if spl.alg.gid != 0
@@ -241,8 +241,8 @@ function step(model, spl::Sampler{<:Hamiltonian}, vi::AbstractVarInfo, is_first:
     lj_func = gen_lj_func(vi, spl, model)
     rev_func = gen_rev_func(vi, spl)
     log_func = gen_log_func(spl)
-    momentum_sampler = gen_momentum_sampler(vi, spl, spl.info[:wum].pc)
-    H_func = gen_H_func(spl.info[:wum].pc)
+    momentum_sampler = gen_momentum_sampler(vi, spl, spl.info.wum.pc)
+    H_func = gen_H_func(spl.info.wum.pc)
 
     θ, lj = vi[spl], vi.logp
 
@@ -259,17 +259,17 @@ function step(model, spl::Sampler{<:Hamiltonian}, vi::AbstractVarInfo, is_first:
     end
 
     if PROGRESS[] && spl.alg.gid == 0
-        std_str = string(spl.info[:wum].pc)
+        std_str = string(spl.info.wum.pc)
         std_str = length(std_str) >= 32 ? std_str[1:30]*"..." : std_str
-        haskey(spl.info, :progress) && ProgressMeter.update!(
-            spl.info[:progress],
-            spl.info[:progress].counter;
+        isdefined(spl.info, :progress) && ProgressMeter.update!(
+            spl.info.progress,
+            spl.info.progress.counter;
             showvalues = [(:ϵ, ϵ), (:α, α), (:pre_cond, std_str)],
         )
     end
 
     if spl.alg isa AdaptiveHamiltonian
-        adapt!(spl.info[:wum], α, vi[spl], adapt_M=false, adapt_ϵ=true)
+        adapt!(spl.info.wum, α, vi[spl], adapt_M=false, adapt_ϵ=true)
     end
 
     Turing.DEBUG && @debug "R -> X..."

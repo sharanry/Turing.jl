@@ -93,14 +93,14 @@ function _sample(varInfo,
     time_total = zero(Float64)
     n = spl.alg.n_iters; i_thin = 1
     # Gibbs steps
-    PROGRESS[] && (spl.info[:progress] = ProgressMeter.Progress(n, 1, "[Gibbs] Sampling...", 0))
+    PROGRESS[] && (spl.info.progress = ProgressMeter.Progress(n, 1, "[Gibbs] Sampling...", 0))
     for i = 1:n
         Turing.DEBUG && @debug "Gibbs stepping..."
 
         time_elapsed = zero(Float64)
         lp = nothing; epsilon = nothing; lf_num = nothing; eval_num = nothing
 
-        for local_spl in spl.info[:samplers]
+        for local_spl in spl.info.samplers
             last_spl = local_spl
 
             Turing.DEBUG && @debug "$(typeof(local_spl)) stepping..."
@@ -112,13 +112,13 @@ function _sample(varInfo,
 
                     if ~spl.alg.thin
                         samples[i_thin].value = Sample(varInfo).value
-                        samples[i_thin].value[:elapsed] = time_elapsed_thin
+                        samples[i_thin].value.elapsed = time_elapsed_thin
                         if ~isa(local_spl.alg, Hamiltonian)
                             # If statement below is true if there is a HMC component which provides lp and epsilon
-                            if lp != nothing samples[i_thin].value[:lp] = lp end
-                            if epsilon != nothing samples[i_thin].value[:epsilon] = epsilon end
-                            if lf_num != nothing samples[i_thin].value[:lf_num] = lf_num end
-                            if eval_num != nothing samples[i_thin].value[:eval_num] = eval_num end
+                            if lp != nothing samples[i_thin].value.lp = lp end
+                            if epsilon != nothing samples[i_thin].value.epsilon = epsilon end
+                            if lf_num != nothing samples[i_thin].value.lf_num = lf_num end
+                            if eval_num != nothing samples[i_thin].value.eval_num = eval_num end
                         end
                         i_thin += 1
                     end
@@ -127,9 +127,9 @@ function _sample(varInfo,
 
                 if isa(local_spl.alg, Hamiltonian)
                     lp = getlogp(varInfo)
-                    epsilon = getss(local_spl.info[:wum])
-                    lf_num = local_spl.info[:lf_num]
-                    eval_num = local_spl.info[:eval_num]
+                    epsilon = getss(local_spl.info.wum)
+                    lf_num = local_spl.info.lf_num
+                    eval_num = local_spl.info.eval_num
                 end
             else
                 @error("[Gibbs] unsupport base sampler $local_spl")
@@ -140,17 +140,17 @@ function _sample(varInfo,
 
         if spl.alg.thin
             samples[i].value = Sample(varInfo).value
-            samples[i].value[:elapsed] = time_elapsed
+            samples[i].value.elapsed = time_elapsed
             # If statement below is true if there is a HMC component which provides lp and epsilon
-            if lp != nothing samples[i].value[:lp] = lp end
-            if epsilon != nothing samples[i].value[:epsilon] = epsilon end
-            if lf_num != nothing samples[i].value[:lf_num] = lf_num end
-            if eval_num != nothing samples[i].value[:eval_num] = eval_num end
+            if lp != nothing samples[i].value.lp = lp end
+            if epsilon != nothing samples[i].value.epsilon = epsilon end
+            if lf_num != nothing samples[i].value.lf_num = lf_num end
+            if eval_num != nothing samples[i].value.eval_num = eval_num end
         end
 
         if PROGRESS[]
-            if haskey(spl.info, :progress)
-                ProgressMeter.update!(spl.info[:progress], spl.info[:progress].counter + 1)
+            if isdefined(spl.info, :progress)
+                ProgressMeter.update!(spl.info.progress, spl.info.progress.counter + 1)
             end
         end
     end

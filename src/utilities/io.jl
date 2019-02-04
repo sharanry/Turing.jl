@@ -6,9 +6,19 @@
 # Sample #
 ##########
 
-mutable struct Sample
+struct SampleInfo
+    lf_num::Int
+    elapsed::Float64
+    epsilon::Float64
+    eval_num::Int
+    lf_eps::Float64
+end
+SampleInfo() = SampleInfo(0, NaN, NaN, 0, NaN)
+
+mutable struct Sample{Tvalue}
     weight :: Float64     # particle weight
-    value :: Dict{Symbol,Any}
+    info   :: SampleInfo
+    value  :: Tvalue
 end
 
 Base.getindex(s::Sample, v::Symbol) = getjuliatype(s, v)

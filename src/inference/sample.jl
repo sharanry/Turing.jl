@@ -1,56 +1,65 @@
 function Sample(vi::UntypedVarInfo)
-    value = Dict{Symbol, Any}() # value is named here because of Sample has a field called value
+    values = Dict{Symbol, Dict{Symbol, Real}}()
     for vn in keys(vi)
-        value[sym(vn)] = vi[vn]
+        values[s][sym_idx(vn)] = vi[vn]
     end
-
-    # NOTE: do we need to check if lp is 0?
-    value[:lp] = getlogp(vi)
-    Sample(0.0, value)
+    values = Dict(k => copy.(values[k]) for k in keys(values))
+    nt = (;values..., lp = getlogp(vi))
+    Sample(0.0, nt)
 end
 @generated function Sample(vi::TypedVarInfo{Tvis}) where Tvis
-    expr = quote
-        value = Dict{Symbol, Any}() # value is named here because of Sample has a field called value
-    end
+    nt_args = []
     for f in fieldnames(Tvis)
         push!(expr.args, quote
+            value_$f = Dict{Symbol, eltype(vi.vis.$f.vals)}()
             for vn in keys(vi.vis.$f.idcs)
-                value[sym(vn)] = vi[vn]
+                value_$f[sym_idx(vn)] = vi[vn]
             end
         end)
+        push!(nt_args, :($f = value_$f))
     end
-    push!(expr.args, quote
-        # NOTE: do we need to check if lp is 0?
-        value[:lp] = getlogp(vi)
-        Sample(0.0, value)
+    push!(nt_args, :(lp = getlogp(vi)))
     end)
-    return expr
+    if length(nt_args) == 0
+        return quote
+            nt = NamedTuple()
+            return Sample(0.0, nt)
+        end
+    else
+        return quote
+            nt = ($(nt_args...),)
+            return Sample(0.0, nt)
+        end
+    end
 end
 
 # VarInfo, combined with spl.info, to Sample
 function Sample(vi::AbstractVarInfo, spl::Sampler)
     s = Sample(vi)
 
-    if haskey(spl.info, :wum)
-        s.value[:epsilon] = getss(spl.info[:wum])
+    if isdefined(spl.info, :wum)
+        s.info.epsilon = getss(spl.info.wum)
     end
 
-    if haskey(spl.info, :lf_num)
-        s.value[:lf_num] = spl.info[:lf_num]
+    if isdefined(spl.info, :lf_num)
+        s.info.lf_num = spl.info.lf_num
     end
 
-    if haskey(spl.info, :eval_num)
-        s.value[:eval_num] = spl.info[:eval_num]
+    if isdefined(spl.info, :eval_num)
+        s.info.eval_num = spl.info.eval_num
     end
 
     return s
 end
 
+using InteractiveUtils
+
 function sample(model, alg; kwargs...)
     spl = get_sampler(model, alg; kwargs...)
     samples = init_samples(alg; kwargs...)
     vi = init_varinfo(model, spl; kwargs...)
-    _sample(vi, samples, spl, model, alg; kwargs...)
+    @code_warntype _sample(vi, samples, spl, model, alg, CHUNKSIZE[], false, nothing, 0, STAN_DEFAULT_ADAPT_CONF)
+    _sample(vi, samples, spl, model, alg)
 end
 
 function init_samples(alg; kwargs...)
@@ -72,7 +81,7 @@ function init_samples(sample_n, weight)
     samples = Array{Sample}(undef, sample_n)
     weight = 1 / sample_n
     for i = 1:sample_n
-        samples[i] = Sample(weight, Dict{Symbol, Any}())
+        samples[i] = Sample(weight)
     end
     return samples
 end

@@ -50,12 +50,17 @@ end
 
 getspace(::SGHMC{<:Any, space}) where space = space
 
+mutable struct SGHMCInfo
+    v::Vector{Float64}
+end
+SGHMCInfo(n) = SGHMCInfo(zeros(Float64, n))
+
 function step(model, spl::Sampler{<:SGHMC}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
 
     # Initialize velocity
     v = zeros(Float64, size(vi[spl]))
-    spl.info[:v] = v
+    spl.info.v = v
 
     spl.alg.gid != 0 && invlink!(vi, spl)
     return vi, true
@@ -72,7 +77,7 @@ function step(model, spl::Sampler{<:SGHMC}, vi::AbstractVarInfo, is_first::Val{f
     end
 
     Turing.DEBUG && @debug "recording old variables..."
-    θ, v = vi[spl], spl.info[:v]
+    θ, v = vi[spl], spl.info.v
     _, grad = gradient_logp(θ, vi, model, spl)
     verifygrad(grad)
 

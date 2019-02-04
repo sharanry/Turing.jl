@@ -61,7 +61,8 @@ isequal(x::VarName, y::VarName) = hash(uid(x)) == hash(uid(y))
 Base.string(vn::VarName) = "{$(vn.csym),$(vn.sym)$(vn.indexing)}:$(vn.counter)"
 Base.string(vns::Vector{<:VarName}) = replace(string(map(vn -> string(vn), vns)), "String" => "")
 
-sym(vn::VarName) = Symbol("$(vn.sym)$(vn.indexing)")  # simplified symbol
+sym_idx(vn::VarName) = Symbol("$(vn.sym)$(vn.indexing)")  # simplified symbol
+sym(vn::VarName{sym}) where sym = sym
 
 cuid(vn::VarName) = (vn.csym, vn.sym, vn.indexing)    # the uid which is only available at compile time
 
@@ -79,7 +80,7 @@ include("typed_varinfo.jl")
             vals = v.vis.$f.vals
             for (vn, i) in idcs
                 range = ranges[i]
-                flatten(names, value, string(sym(vn)), vals[range])
+                flatten(names, value, string(sym_idx(vn)), vals[range])
             end
         end)
     end
@@ -91,7 +92,7 @@ function flatten(names, value :: Array{Float64}, k :: String, v::UntypedVarInfo)
     vals = v.vals
     for (vn, i) in idcs
         range = ranges[i]
-        flatten(names, value, string(sym(vn)), vals[range])
+        flatten(names, value, string(sym_idx(vn)), vals[range])
     end
 end
 

@@ -8,7 +8,7 @@ const VarInfo = AbstractVarInfo
 function Turing.runmodel!(model::Model, vi::AbstractVarInfo, spl::Union{Nothing,Sampler})
     setlogp!(vi, zero(Real))
     if spl != nothing && :eval_num ∈ keys(spl.info)
-        spl.info[:eval_num] += 1
+        spl.info.eval_num += 1
     end
     model(vi, spl)
     return vi
@@ -223,12 +223,14 @@ function getidcs(vi::UntypedVarInfo, spl::Sampler)
     # NOTE: 0b00 is the sanity flag for
     #         |\____ getidcs   (mask = 0b10)
     #         \_____ getranges (mask = 0b01)
-    if ~haskey(spl.info, :cache_updated) spl.info[:cache_updated] = CACHERESET end
-    if haskey(spl.info, :idcs) && (spl.info[:cache_updated] & CACHEIDCS) > 0
-        spl.info[:idcs]
+    if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64 
+        spl.info.cache_updated = CACHERESET 
+    end
+    if isdefined(spl.info, :idcs) && (spl.info.cache_updated & CACHEIDCS) > 0
+        spl.info.idcs
     else
-        spl.info[:cache_updated] = spl.info[:cache_updated] | CACHEIDCS
-        spl.info[:idcs] = filter(i ->
+        spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
+        spl.info.idcs = filter(i ->
             (vi.gids[i] == spl.alg.gid || vi.gids[i] == 0) && (isempty(getspace(spl)) || is_inside(vi.vns[i], getspace(spl))),
             collect(1:length(vi.gids))
         )
@@ -265,12 +267,14 @@ getvns(vi::UntypedVarInfo, spl::Union{Nothing, Sampler}) = view(vi.vns, getidcs(
 
 # Get all vns of variables belonging to gid or 0
 function getranges(vi::UntypedVarInfo, spl::Sampler)
-    if ~haskey(spl.info, :cache_updated) spl.info[:cache_updated] = CACHERESET end
-    if haskey(spl.info, :ranges) && (spl.info[:cache_updated] & CACHERANGES) > 0
-        spl.info[:ranges]
+    if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64 
+        spl.info.cache_updated = CACHERESET 
+    end
+    if isdefined(spl.info, :ranges) && (spl.info.cache_updated & CACHERANGES) > 0
+        spl.info.ranges
     else
-        spl.info[:cache_updated] = spl.info[:cache_updated] | CACHERANGES
-        spl.info[:ranges] = union(map(i -> vi.ranges[i], getidcs(vi, spl))...)
+        spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
+        spl.info.ranges = union(map(i -> vi.ranges[i], getidcs(vi, spl))...)
     end
 end
 

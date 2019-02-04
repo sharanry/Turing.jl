@@ -48,9 +48,9 @@ function ThreePhaseAdapter(spl::Sampler{<:AdaptiveHamiltonian}, ϵ::Real, dim::I
     pc = DiagPreConditioner(dim)
     # pc = DensePreConditioner(dim)
     # Dual averaging for step size
-    ssa = DualAveraging(spl, spl.info[:adapt_conf], ϵ)
+    ssa = DualAveraging(spl, spl.info.adapt_conf, ϵ)
     # Window parameters
-    init_buffer, term_buffer, window_size, next_window = get_threephase_params(spl.info[:adapt_conf])
+    init_buffer, term_buffer, window_size, next_window = get_threephase_params(spl.info.adapt_conf)
     threephasestate = ThreePhaseState(0, window_size, next_window)
     return ThreePhaseAdapter(spl.alg.n_adapts, init_buffer, term_buffer, pc, ssa, threephasestate)
 end
