@@ -41,13 +41,14 @@ function Sampler(alg::IS)
     return Sampler(alg, info)
 end
 
-init_samples(alg::IS; kwargs...) = Array{Sample}(undef, alg.n_particles)
-function init_varinfo(model, spl::Sampler{<:IS}; stable = true, kwargs...)
-    if stable
-        return TypedVarInfo(default_varinfo(model, spl))
-    else
-        return nothing
-    end
+function init_samples(alg::IS, sample::Tsample; kwargs...) where {Tsample <: Sample}
+    return Array{Tsample}(undef, alg.n_particles)
+end
+
+function init_spl(model, alg::IS; stable = true, kwargs...)
+    vi = TypedVarInfo(default_varinfo(model))
+    spl = Sampler(alg, nothing)
+    return spl, vi
 end
 
 function _sample(args...; stable = true, kwargs...)

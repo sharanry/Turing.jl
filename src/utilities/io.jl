@@ -6,7 +6,7 @@
 # Sample #
 ##########
 
-struct SampleInfo
+mutable struct SampleInfo
     lf_num::Int
     elapsed::Float64
     epsilon::Float64
@@ -20,6 +20,7 @@ mutable struct Sample{Tvalue}
     info   :: SampleInfo
     value  :: Tvalue
 end
+Sample(weight, value::NamedTuple) = Sample(weight, SampleInfo(), value)
 
 Base.getindex(s::Sample, v::Symbol) = getjuliatype(s, v)
 
@@ -150,8 +151,12 @@ ind2sub(v, i) = Tuple(CartesianIndices(v)[i])
 function flatten(s::Sample)
     vals  = Vector{Float64}()
     names = Vector{AbstractString}()
-    for (k, v) in s.value
-        flatten(names, vals, string(k), v)
+    for f in fieldnames(typeof(s.value))
+        if f !== :lp
+            for (k, v) in getfield(s.value, f)
+                flatten(names, vals, string(k), v)
+            end
+        end
     end
     return Dict(names[i] => vals[i] for i in 1:length(vals))
 end

@@ -57,21 +57,47 @@ end
     end    
 end
 
-mutable struct MHInfo
+mutable struct MHInfo{Tidcs, Tranges}
     proposal_ratio::Float64
     prior_prob::Float64
     violating_support::Bool
+    progress::ProgressMeter.Progress
+    cache_updated::UInt8
+    idcs::Tidcs
+    ranges::Tranges
 end
-MHInfo() = MHInfo(0.0, 0.0, false)
+function MHInfo(alg, idcs, ranges)
+    return MHInfo(  0.0, 
+                    0.0, 
+                    false, 
+                    ProgressMeter.Progress(alg.n_iters, 1, "[MH] Sampling...", 0),
+                    CACHERESET,
+                    idcs,
+                    ranges
+                )
+end
 
-function Sampler(alg::MH, model::Model)
+function Sampler(alg::MH, vi::AbstractVarInfo)
     alg_str = "MH"
     # Sanity check for space
     if alg.gid == 0 && !isempty(getspace(alg))
         verifyspace(getspace(alg), model.pvars, alg_str)
     end
-    info = MHInfo()
-    Sampler(alg, info)
+    idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
+    ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
+    info = MHInfo(alg, idcs, ranges)
+    return Sampler(alg, info)
+end
+
+function init_spl(model, alg::MH; kwargs...)
+    alg_str = "MH"
+    # Sanity check for space
+    if alg.gid == 0 && !isempty(getspace(alg))
+        verifyspace(getspace(alg), model.pvars, alg_str)
+    end
+    vi = TypedVarInfo(default_varinfo(model))
+    spl = Sampler(alg, vi)
+    return spl, vi
 end
 
 function propose(model, spl::Sampler{<:MH}, vi::AbstractVarInfo)
@@ -141,7 +167,7 @@ function _sample(vi, samples, spl, model, alg::MH;
             samples[i] = samples[i - 1]
         end
 
-        samples[i].value.elapsed = time_elapsed
+        samples[i].info.elapsed = time_elapsed
         push!(accept_his, is_accept)
 
         PROGRESS[] && (ProgressMeter.next!(spl.info.progress))

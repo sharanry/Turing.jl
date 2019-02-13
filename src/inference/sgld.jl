@@ -46,13 +46,41 @@ function SGLD{AD, space}(alg::SGLD, new_gid::Int) where {AD, space}
     SGLD{AD, space}(alg.n_iters, alg.epsilon, new_gid)
 end
 
+mutable struct SGLDInfo{Tt, Twum, Tidcs, Tranges}
+    t::Tt
+    wum::Twum
+    cache_updated::UInt8
+    idcs::Tidcs
+    ranges::Tranges
+    progress::ProgressMeter.Progress
+    lf_num::Int
+    eval_num::Int
+end
+
+function init_adapter(alg::SGLD)
+    return NaiveCompAdapter(UnitPreConditioner(), ManualSSAdapter(MSSState(alg.epsilon)))
+end
+
+function init_spl(model, alg::SGLD; kwargs...)
+    wum = init_adapter(alg)
+    vi = TypedVarInfo(default_varinfo(model))
+    idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
+    ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
+    progress = ProgressMeter.Progress(alg.n_iters, 1, "[SGLD] Sampling...", 0)
+
+    vi = TypedVarInfo(default_varinfo(model))
+    info = SGLDInfo(0, wum, CACHERESET, idcs, ranges, progress, 0, 1)
+    spl = Sampler(alg, info)
+    return spl, vi
+end
+
 function step(model, spl::Sampler{<:SGLD}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
 
-    spl.info[:wum] = NaiveCompAdapter(UnitPreConditioner(), ManualSSAdapter(MSSState(spl.alg.epsilon)))
+    spl.info.wum = NaiveCompAdapter(UnitPreConditioner(), ManualSSAdapter(MSSState(spl.alg.epsilon)))
 
     # Initialize iteration counter
-    spl.info[:t] = 0
+    spl.info.t = 0
 
     spl.alg.gid != 0 && invlink!(vi, spl)
     return vi, true
@@ -60,12 +88,12 @@ end
 
 function step(model, spl::Sampler{<:SGLD}, vi::AbstractVarInfo, is_first::Val{false})
     # Update iteration counter
-    spl.info[:t] += 1
+    spl.info.t += 1
 
     Turing.DEBUG && @debug "compute current step size..."
     γ = .35
-    ϵ_t = spl.alg.epsilon / spl.info[:t]^γ # NOTE: Choose γ=.55 in paper
-    mssa = spl.info[:wum].ssa
+    ϵ_t = spl.alg.epsilon / spl.info.t^γ # NOTE: Choose γ=.55 in paper
+    mssa = spl.info.wum.ssa
     mssa.state.ϵ = ϵ_t
 
     Turing.DEBUG && @debug "X-> R..."

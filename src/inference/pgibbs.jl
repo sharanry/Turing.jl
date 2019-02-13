@@ -89,7 +89,9 @@ function step(model, spl::Sampler{<:PG}, vi::AbstractVarInfo)
     return particles[indx].vi, true
 end
 
-init_samples(alg::PG, kwargs...) = Vector{Sample}()
+function init_samples(alg::PG, sample::Tsample, kwargs...) where {Tsample <: Sample}
+    return Vector{Tsample}()
+end
 function init_varinfo(model, spl::Sampler{<:PG}; resume_from = nothing, kwargs...)
     if resume_from == nothing
         return VarInfo()

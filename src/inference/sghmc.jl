@@ -50,10 +50,29 @@ end
 
 getspace(::SGHMC{<:Any, space}) where space = space
 
-mutable struct SGHMCInfo
-    v::Vector{Float64}
+mutable struct SGHMCInfo{Tv, Tidcs, Tranges}
+    v::Tv
+    cache_updated::UInt8
+    idcs::Tidcs
+    ranges::Tranges
+    progress::ProgressMeter.Progress
+    lf_num::Int
+    eval_num::Int
 end
-SGHMCInfo(n) = SGHMCInfo(zeros(Float64, n))
+
+function init_spl(model, alg::SGHMC; kwargs...)
+    vi = TypedVarInfo(default_varinfo(model))
+    idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
+    ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
+    progress = ProgressMeter.Progress(alg.n_iters, 1, "[SGHMC] Sampling...", 0)
+
+    _info = SGHMCInfo(nothing, CACHERESET, idcs, ranges, progress, 0, 1)
+    _spl = Sampler(alg, _info)
+    v = zeros(Float64, size(vi[_spl]))
+    info = SGHMCInfo(v, CACHERESET, idcs, ranges, progress, 0, 1)
+    spl = Sampler(alg, info)
+    return spl, vi
+end
 
 function step(model, spl::Sampler{<:SGHMC}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)

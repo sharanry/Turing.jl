@@ -1,32 +1,35 @@
 function Sample(vi::UntypedVarInfo)
     values = Dict{Symbol, Dict{Symbol, Real}}()
     for vn in keys(vi)
-        values[s][sym_idx(vn)] = vi[vn]
+        values[s][VarReplay.sym_idx(vn)] = vi[vn]
     end
     values = Dict(k => copy.(values[k]) for k in keys(values))
-    nt = (;values..., lp = getlogp(vi))
+    nt = (; values..., lp = getlogp(vi))
     Sample(0.0, nt)
 end
 @generated function Sample(vi::TypedVarInfo{Tvis}) where Tvis
     nt_args = []
+    expr = Expr(:block)
     for f in fieldnames(Tvis)
         push!(expr.args, quote
-            value_$f = Dict{Symbol, eltype(vi.vis.$f.vals)}()
+            $(Symbol(:value_, f)) = Dict{Symbol, eltype(vi.vis.$f.vals)}()
             for vn in keys(vi.vis.$f.idcs)
-                value_$f[sym_idx(vn)] = vi[vn]
+                $(Symbol(:value_, f))[VarReplay.sym_idx(vn)] = vi[vn]
             end
         end)
-        push!(nt_args, :($f = value_$f))
+        push!(nt_args, :($f = $(Symbol(:value_, f))))
     end
     push!(nt_args, :(lp = getlogp(vi)))
-    end)
+
     if length(nt_args) == 0
         return quote
+            $expr
             nt = NamedTuple()
             return Sample(0.0, nt)
         end
     else
         return quote
+            $expr
             nt = ($(nt_args...),)
             return Sample(0.0, nt)
         end
@@ -55,17 +58,16 @@ end
 using InteractiveUtils
 
 function sample(model, alg; kwargs...)
-    spl = get_sampler(model, alg; kwargs...)
-    samples = init_samples(alg; kwargs...)
-    vi = init_varinfo(model, spl; kwargs...)
-    @code_warntype _sample(vi, samples, spl, model, alg, CHUNKSIZE[], false, nothing, 0, STAN_DEFAULT_ADAPT_CONF)
+    spl, vi = init_spl(model, alg; kwargs...)
+    samples = init_samples(alg, Sample(vi); kwargs...)
+    #@code_warntype _sample(vi, samples, spl, model, alg, CHUNKSIZE[], false, nothing, 0, STAN_DEFAULT_ADAPT_CONF)
     _sample(vi, samples, spl, model, alg)
 end
 
-function init_samples(alg; kwargs...)
+function init_samples(alg::InferenceAlgorithm, sample::Sample; kwargs...)
     n = get_sample_n(alg; kwargs...)
     weight = 1 / n
-    samples = init_samples(n, weight)
+    samples = init_samples(n, weight, sample)
     return samples
 end
 
@@ -77,11 +79,12 @@ function get_sample_n(alg; reuse_spl_n = 0, kwargs...)
     end
 end
 
-function init_samples(sample_n, weight)
-    samples = Array{Sample}(undef, sample_n)
+function init_samples(sample_n, weight, sample::Tsample) where {Tsample <: Sample}
+    samples = Array{Tsample}(undef, sample_n)
     weight = 1 / sample_n
     for i = 1:sample_n
-        samples[i] = Sample(weight)
+        samples[i] = deepcopy(sample)
+        samples[i].weight = weight
     end
     return samples
 end
@@ -103,11 +106,11 @@ function default_sampler(model, alg; reuse_spl_n = 0, resume_from = nothing, kwa
 end
 
 function init_varinfo(model, spl; kwargs...)
-    vi = TypedVarInfo(default_varinfo(model, spl; kwargs...))
+    vi = TypedVarInfo(default_varinfo(model; kwargs...))
     return vi
 end
 
-function default_varinfo(model, spl; resume_from = nothing, kwargs...)
+function default_varinfo(model; resume_from = nothing, kwargs...)
     if resume_from == nothing
         vi = VarInfo()
         model(vi, HamiltonianRobustInit())

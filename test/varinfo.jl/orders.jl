@@ -12,7 +12,7 @@ function randr(vi::UntypedVarInfo, vn::VarName, dist::Distribution, spl::Turing.
     if ~haskey(vi, vn)
         r = rand(dist)
         Turing.push!(vi, vn, r, dist, spl.alg.gid)
-        spl.info[:cache_updated] = CACHERESET
+        spl.info.cache_updated = CACHERESET
         r
     elseif is_flagged(vi, vn, "del")
         unset_flag!(vi, vn, "del")

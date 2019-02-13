@@ -71,21 +71,35 @@ end
 DEFAULT_ADAPT_CONF_TYPE = Nothing
 STAN_DEFAULT_ADAPT_CONF = nothing
 
-Sampler(alg::Hamiltonian) =  Sampler(alg, nothing)
-function Sampler(alg::Hamiltonian, adapt_conf::Nothing)
-    return _sampler(alg::Hamiltonian, adapt_conf)
+Sampler(alg::HMC, vi::AbstractVarInfo) = Sampler(alg, vi, nothing, 0)
+function Sampler(alg::HMC, vi::AbstractVarInfo, adapt_conf, eval_num)
+    idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
+    ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
+    info = HMCInfo(alg, adapt_conf, idcs, ranges, eval_num)
+    return Sampler(alg, info)
 end
-function _sampler(alg::Hamiltonian, adapt_conf)
-    info=Dict{Symbol, Any}()
 
-    # For state infomation
-    info[:lf_num] = 0
-    info[:eval_num] = 0
-
-    # Adapt configuration
-    info[:adapt_conf] = adapt_conf
-
-    Sampler(alg, info)
+mutable struct HMCInfo{Tidcs, Tranges, Tconf, Twum}
+    idcs::Tidcs
+    cache_updated::UInt8
+    ranges::Tranges
+    eval_num::Int
+    adapt_conf::Tconf
+    progress::ProgressMeter.Progress
+    wum::Twum
+    lf_num::Int
+end
+function HMCInfo(alg, adapt_conf, idcs, ranges, eval_num)
+    wum = init_adapter(alg, adapt_conf)
+    return HMCInfo( idcs, 
+                    CACHERESET, 
+                    ranges, 
+                    eval_num, 
+                    adapt_conf, 
+                    ProgressMeter.Progress(alg.n_iters, 1, "[HMC] Sampling...", 0), 
+                    wum,
+                    0
+                    )
 end
 
 function hmc_step(θ, lj, lj_func, grad_func, H_func, ϵ, alg::HMC, momentum_sampler::Function;
@@ -95,20 +109,28 @@ function hmc_step(θ, lj, lj_func, grad_func, H_func, ϵ, alg::HMC, momentum_sam
     return θ_new, lj_new, is_accept, α
 end
 
-function get_sampler(model, alg::Hamiltonian; 
+function init_spl(model, alg::HMC; 
                             reuse_spl_n = 0, 
                             resume_from = nothing, 
                             adapt_conf=STAN_DEFAULT_ADAPT_CONF, 
                             kwargs...,
                     )
-    if reuse_spl_n > 0
-        spl = resume_from.info[:spl]
+
+    if resume_from == nothing
+        eval_num = 1
+        vi = TypedVarInfo(default_varinfo(model))
     else
-        spl = Sampler(alg, adapt_conf)
+        vi = deepcopy(resume_from.info.vi)
+    end
+    
+    if reuse_spl_n > 0
+        spl = resume_from.info.spl
+    else
+        spl = Sampler(alg, vi, adapt_conf, eval_num)
     end
     @assert isa(spl.alg, Hamiltonian) "[Turing] alg type mismatch; please use resume() to re-use spl"
 
-    return spl
+    return spl, vi
 end
 
 function get_sample_n(alg::Hamiltonian; reuse_spl_n = 0, kwargs...)
@@ -118,7 +140,7 @@ end
 function init_varinfo(model, spl::Sampler{<:Hamiltonian}; resume_from = nothing, kwargs...)
     if resume_from == nothing
         spl.info.eval_num += 1
-        return TypedVarInfo(default_varinfo(model, spl))
+        return TypedVarInfo(default_varinfo(model))
     else
         return deepcopy(resume_from.info.vi)
     end
@@ -167,9 +189,9 @@ function _sample(vi, samples, spl, model, alg::Hamiltonian,
         else         # rejected => store the previous predcits
             samples[i] = samples[i - 1]
         end
-        samples[i].value.elapsed = time_elapsed
+        samples[i].info.elapsed = time_elapsed
         if isdefined(spl.info, :wum)
-            samples[i].value.lf_eps = getss(spl.info.wum)
+            samples[i].info.lf_eps = getss(spl.info.wum)
         end
 
         total_lf_num += spl.info.lf_num
@@ -213,11 +235,21 @@ function step(model, spl::Sampler{<:StaticHamiltonian}, vi::AbstractVarInfo, is_
     return vi, true
 end
 
+function init_adapter(alg::StaticHamiltonian, adapt_conf=nothing)
+    return NaiveCompAdapter(UnitPreConditioner(), FixedStepSize(alg.epsilon))
+end
+
+function init_adapter(alg::AdaptiveHamiltonian, adapt_conf)
+    epsilon = find_good_eps(model, spl, vi) # heuristically find good initial epsilon
+    dim = length(vi[spl])
+    return ThreePhaseAdapter(alg, epsilon, dim, adapt_conf)
+end
+
 function step(model, spl::Sampler{<:AdaptiveHamiltonian}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
     epsilon = find_good_eps(model, spl, vi) # heuristically find good initial epsilon
     dim = length(vi[spl])
-    spl.info.wum = ThreePhaseAdapter(spl, epsilon, dim)
+    spl.info.wum = ThreePhaseAdapter(alg, epsilon, dim)
     spl.alg.gid != 0 && invlink!(vi, spl)
     return vi, true
 end

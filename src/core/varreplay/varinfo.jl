@@ -7,7 +7,7 @@ const VarInfo = AbstractVarInfo
 
 function Turing.runmodel!(model::Model, vi::AbstractVarInfo, spl::Union{Nothing,Sampler})
     setlogp!(vi, zero(Real))
-    if spl != nothing && :eval_num ∈ keys(spl.info)
+    if spl != nothing && isdefined(spl.info, :eval_num)
         spl.info.eval_num += 1
     end
     model(vi, spl)
@@ -230,11 +230,14 @@ function getidcs(vi::UntypedVarInfo, spl::Sampler)
         spl.info.idcs
     else
         spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
-        spl.info.idcs = filter(i ->
+        spl.info.idcs = _getidcs(vi, spl)
+    end
+end
+function _getidcs(vi::UntypedVarInfo, spl::Sampler)
+    return filter(i ->
             (vi.gids[i] == spl.alg.gid || vi.gids[i] == 0) && (isempty(getspace(spl)) || is_inside(vi.vns[i], getspace(spl))),
             collect(1:length(vi.gids))
         )
-    end
 end
 
 @inline function _filter(f, space)
@@ -274,9 +277,10 @@ function getranges(vi::UntypedVarInfo, spl::Sampler)
         spl.info.ranges
     else
         spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
-        spl.info.ranges = union(map(i -> vi.ranges[i], getidcs(vi, spl))...)
+        spl.info.ranges = _getranges(vi, spl)
     end
 end
+_getranges(vi::UntypedVarInfo, spl::Sampler) = union(map(i -> vi.ranges[i], getidcs(vi, spl))...)
 
 #######################################
 # Rand & replaying method for VarInfo #

@@ -332,7 +332,6 @@ function setorder!(mvi::TypedVarInfo, vn::VarName{sym}, index::Int) where {sym}
     mvi
 end
 
-_filter_gids_1(vi, f) = filter(i -> getfield(vi.vis, f).gids[i] == 0, 1:length(getfield(vi.vis, f).gids))
 @generated function getidcs(vi::TypedVarInfo{Tvis}, spl::Nothing) where Tvis
     args = []
     for f in fieldnames(Tvis)
@@ -345,12 +344,24 @@ _filter_gids_1(vi, f) = filter(i -> getfield(vi.vis, f).gids[i] == 0, 1:length(g
     end
     return nt
 end
+_filter_gids_1(vi, f) = filter(i -> getfield(vi.vis, f).gids[i] == 0, 1:length(getfield(vi.vis, f).gids))
 
 function _filter_gids_2(mvi, spl, f)
     vi = getfield(mvi.vis, f)
     return filter(i -> (vi.gids[i] == spl.alg.gid || vi.gids[i] == 0) && (isempty(getspace(spl)) || is_inside(vi.vns[i], getspace(spl))), 1:length(vi.gids))
 end
-@generated function getidcs(vi::TypedVarInfo{Tvis}, spl::Sampler) where Tvis
+function getidcs(vi::TypedVarInfo, spl::Sampler)
+    if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
+        spl.info.cache_updated = CACHERESET
+    end
+    if isdefined(spl.info, :idcs) && (spl.info.cache_updated & CACHEIDCS) > 0
+        spl.info.idcs
+    else
+        spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
+        spl.info.idcs = _getidcs(vi, spl)
+    end
+end
+@generated function _getidcs(vi::TypedVarInfo{Tvis}, spl::Sampler) where Tvis
     args = []
     for f in fieldnames(Tvis)
         push!(args, :($f = _filter_gids_2(vi, spl, $(QuoteNode(f)))))
@@ -360,21 +371,7 @@ end
     else
         nt = :(($(args...),))
     end
-
-    return quote
-        # NOTE: 0b00 is the sanity flag for
-        #         |\____ getidcs   (mask = 0b10)
-        #         \_____ getranges (mask = 0b01)
-        if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
-            spl.info.cache_updated = CACHERESET
-        end
-        if isdefined(spl.info, :idcs) && (spl.info.cache_updated & CACHEIDCS) > 0
-            spl.info.idcs
-        else
-            spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
-            spl.info.idcs = $nt
-        end
-    end
+    return nt
 end
 
 @generated function getvns(vi::TypedVarInfo{Tvis}, spl::Union{Nothing, Sampler}) where Tvis
@@ -391,7 +388,20 @@ end
 end
 
 _map(vi, spl, f, idcs) = union(map(i -> getfield(vi.vis, f).ranges[i], idcs)..., Int[])
-@generated function getranges(vi::TypedVarInfo{Tvis}, spl::Sampler) where Tvis
+
+function getranges(vi::TypedVarInfo, spl::Sampler)
+    idcs = getidcs(vi, spl)
+    if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
+        spl.info.cache_updated = CACHERESET 
+    end
+    if isdefined(spl.info, :ranges) && (spl.info.cache_updated & CACHERANGES) > 0
+        spl.info.ranges
+    else
+        spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
+        spl.info.ranges = _getranges(vi, spl, idcs)
+    end
+end
+@generated function _getranges(vi::TypedVarInfo{Tvis}, spl::Sampler, idcs) where Tvis
     args = []
     for f in fieldnames(Tvis)
         push!(args, :($f = _map(vi, spl, $(QuoteNode(f)), idcs.$f)))
@@ -401,19 +411,7 @@ _map(vi, spl, f, idcs) = union(map(i -> getfield(vi.vis, f).ranges[i], idcs)...,
     else
         nt = :(($(args...),))
     end
-
-    return quote
-        idcs = getidcs(vi, spl)
-        if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
-            spl.info.cache_updated = CACHERESET 
-        end
-        if isdefined(spl.info, :ranges) && (spl.info.cache_updated & CACHERANGES) > 0
-            spl.info.ranges
-        else
-            spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
-            spl.info.ranges = $nt
-        end
-    end
+    return nt
 end
 function is_flagged(vi::TypedVarInfo, vn::VarName{sym}, flag::String) where {sym}
     getfield(vi.vis, sym).flags[flag][getidx(vi, vn)]

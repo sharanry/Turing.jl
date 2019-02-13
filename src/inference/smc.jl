@@ -68,7 +68,7 @@ function step(model, spl::Sampler{<:SMC}, vi::VarInfo)
     ## pick a particle to be retained.
     Ws, _ = weights(particles)
     indx = randcat(Ws)
-    push!(spl.info[:logevidence], particles.logE)
+    push!(spl.info.logevidence, particles.logE)
 
     return particles[indx].vi, true
 end

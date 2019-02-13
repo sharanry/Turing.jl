@@ -80,11 +80,10 @@ An implementation of an algorithm should include the following:
 Turing translates models to chunks that call the modelling functions at specified points. The dispatch is based on the value of a `sampler` variable. To include a new inference algorithm implements the requirements mentioned above in a separate file,
 then include that file at the end of this one.
 """
-mutable struct Sampler{T} <: AbstractSampler
+mutable struct Sampler{T, Tinfo} <: AbstractSampler
     alg   ::  T
-    info  ::  Dict{Symbol, Any}         # sampler infomation
+    info  ::  Tinfo         # sampler infomation
 end
-Sampler(alg, model) = Sampler(alg)
 
 getspace(spl::Sampler) = getspace(typeof(spl))
 getspace(::Type{<:Sampler{A}}) where A = getspace(A)
@@ -106,10 +105,7 @@ using .Inference
         DEFAULT_ADAPT_CONF_TYPE = Union{DEFAULT_ADAPT_CONF_TYPE, CmdStan.Adapt}
         STAN_DEFAULT_ADAPT_CONF = CmdStan.Adapt()
         
-        Sampler(alg::Hamiltonian) =  Sampler(alg, CmdStan.Adapt())
-        function Sampler(alg::Hamiltonian, adapt_conf::CmdStan.Adapt)
-            _sampler(alg::Hamiltonian, adapt_conf)
-        end
+        Sampler(alg::Hamiltonian, vi::AbstractVarInfo) =  Sampler(alg, vi, CmdStan.Adapt())
         include("inference/adapt/stan.jl")
     end
 end

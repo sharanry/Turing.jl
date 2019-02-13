@@ -31,10 +31,6 @@ function DynamicNUTS{AD}(n_iters::Integer, space...) where AD
     DynamicNUTS{AD, space}(n_iters, 0)
 end
 
-function Sampler(alg::DynamicNUTS)
-  return Sampler(alg, Dict{Symbol,Any}())
-end
-
 function _sample(vi, samples, spl, model, alg::DynamicNUTS, chunk_size=CHUNKSIZE[])
     if ADBACKEND[] == :forward_diff
         default_chunk_size = CHUNKSIZE[]  # record global chunk size
