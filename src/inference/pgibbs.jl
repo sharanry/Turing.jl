@@ -46,16 +46,22 @@ PG{space, F}(alg::PG, new_gid::Int) where {space, F} = PG{space, F}(alg.n_partic
 const CSMC = PG # type alias of PG as Conditional SMC
 
 mutable struct PGInfo
-    logevidence::Float64
+    logevidence::Vector{Float64}
     progress::ProgressMeter.Progress
     cache_updated::UInt8
 end
-PGInfo(n=0) = PGInfo(NaN, ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0), CACHERESET)
+PGInfo(n=0) = PGInfo(Float64[], ProgressMeter.Progress(n, 1, "[PG] Sampling...", 0), CACHERESET)
 
 function Sampler(alg::PG)
     info = PGInfo()
     Sampler(alg, info)
 end
+function init_spl(model, alg::PG; kwargs...)
+    vi = TypedVarInfo(default_varinfo(model))
+    spl = Sampler(alg)
+    return spl, vi
+end
+
 
 step(model, spl::Sampler{<:PG}, vi::AbstractVarInfo, _) = step(model, spl, vi)
 
