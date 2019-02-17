@@ -55,7 +55,7 @@ function Sample(vi::AbstractVarInfo, spl::Sampler)
     return s
 end
 
-using InteractiveUtils
+#using InteractiveUtils
 
 function init_samples(alg, vi::AbstractArray{<:AbstractVarInfo}; kwargs...)
     return init_samples(alg, first(vi); kwargs...)

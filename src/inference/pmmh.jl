@@ -26,6 +26,7 @@ mutable struct PMMH{space, A<:Tuple} <: InferenceAlgorithm
     algs                  ::    A                 # Proposals for state & parameters
     gid                   ::    Int               # group ID
 end
+PMMH{space}(n, algs, gid) where space = PMMH{space, typeof(algs)}(n, algs, gid)
 function PMMH(n_iters::Int, smc_alg::SMC, parameter_algs...)
     algs = tuple(parameter_algs..., smc_alg)
     return PMMH{buildspace(algs)}(n_iters, algs, 0)
@@ -38,22 +39,26 @@ function PIMH(n_iters::Int, smc_alg::SMC)
 end
 
 @inline function get_pmmh_samplers(subalgs, model, n, alg, alg_str)
-  if length(subalgs) == 0
-      return ()
-  else
-      subalg = subalgs[1]
-      if typeof(subalg) == MH && subalg.n_iters != 1
-          warn("[$alg_str] number of iterations greater than 1 is useless for MH since it is only used for its proposal")
-      end
-      if isa(subalg, Union{SMC, MH})
-          return (Sampler(typeof(subalg)(subalg, n + 1 - length(subalgs)), model), get_pmmh_samplers(Base.tail(subalgs), model, n, alg, alg_str)...)
-      else
-          error("[$alg_str] unsupport base sampling algorithm $alg")
-      end
-  end
-end
+    if length(subalgs) == 0
+        return (), ()
+    else
+        subalg = subalgs[1]
+        if typeof(subalg) == MH && subalg.n_iters != 1
+            warn("[$alg_str] number of iterations greater than 1 is useless for MH since it is only used for its proposal")
+        end
+        if isa(subalg, Union{SMC, MH})
+            spl, vi = init_spl(model, typeof(subalg)(subalg, n + 1 - length(subalgs)))
+            spls_vis = get_pmmh_samplers(Base.tail(subalgs), model, n, alg, alg_str)
+            spls = (spl, spls_vis[1]...)
+            vis = (vi, spls_vis[2]...)
+            return spls, vis
+        else
+            error("[$alg_str] unsupport base sampling algorithm $alg")
+        end
+    end
+end  
 
-struct PMMHInfo{Tsamplers}
+mutable struct PMMHInfo{Tsamplers}
     samplers::Tsamplers
     violating_support::Bool
     prior_prob::Float64
@@ -62,20 +67,44 @@ struct PMMHInfo{Tsamplers}
     old_prior_prob::Float64
     progress::ProgressMeter.Progress
 end
-function PMMHInfo(samplers, n = 0)
+function PMMHInfo(samplers, alg::PMMH)
+    n = alg.n_iters
     return PMMHInfo(samplers, false, 0.0, 0.0, -Inf, 0.0, ProgressMeter.Progress(n, 1, "[PMMH] Sampling...", 0))
 end
 
 function Sampler(alg::PMMH, model::Model)
     alg_str = "PMMH"
     n_samplers = length(alg.algs)
-    samplers = get_pmmh_samplers(alg.algs, model, n_samplers, alg, alg_str)
+    samplers, vis = get_pmmh_samplers(alg.algs, model, n_samplers, alg, alg_str)
     verifyspace(alg.algs, model.pvars, alg_str)
-    info = PMMHInfo(samplers)
+    info = PMMHInfo(samplers, alg)
     return Sampler(alg, info)
 end
 
-function step(model, spl::Sampler{<:PMMH}, vi::AbstractVarInfo, is_first::Bool)
+function init_spl(model, alg::PMMH; kwargs...)
+    spl = Sampler(alg, model)
+    vi = VarInfo(model)
+    return spl, vi
+end
+
+@inline function _step(samplers::Tuple, model, vi, violating_support, new_prior_prob, proposal_ratio)
+    if length(samplers) == 1
+        return violating_support, new_prior_prob, proposal_ratio
+    end
+    local_spl = samplers[1]
+    propose(model, local_spl, vi)
+    Turing.DEBUG && @debug "$(typeof(local_spl)) proposing $(getspace(local_spl))..."
+    if local_spl.info.violating_support 
+        violating_support = true
+        return violating_support, new_prior_prob, proposal_ratio
+    end
+    new_prior_prob += local_spl.info.prior_prob
+    proposal_ratio += local_spl.info.proposal_ratio
+
+    return _step(Base.tail(samplers), model, vi, violating_support, new_prior_prob, proposal_ratio)
+end
+
+function step(model, spl::Sampler{<:PMMH}, vi::AbstractVarInfo)
     violating_support = false
     proposal_ratio = 0.0
     new_prior_prob = 0.0
@@ -83,20 +112,13 @@ function step(model, spl::Sampler{<:PMMH}, vi::AbstractVarInfo, is_first::Bool)
     old_θ = copy(vi[spl])
 
     Turing.DEBUG && @debug "Propose new parameters from proposals..."
-    for local_spl in spl.info.samplers[1:end-1]
-        Turing.DEBUG && @debug "$(typeof(local_spl)) proposing $(getspace(local_spl))..."
-        propose(model, local_spl, vi)
-        if local_spl.info.violating_support 
-            violating_support = true
-            break 
-        end
-        new_prior_prob += local_spl.info.prior_prob
-        proposal_ratio += local_spl.info.proposal_ratio
-    end
+
+    violating_support, new_prior_prob, proposal_ratio = 
+        _step(spl.info.samplers, model, vi, violating_support, new_prior_prob, proposal_ratio)
 
     if !violating_support # do not run SMC if going to refuse anyway
         Turing.DEBUG && @debug "Propose new state with SMC..."
-        vi = step(model, spl.info.samplers[end], vi)
+        vi, _ = step(model, spl.info.samplers[end], vi)
         new_likelihood_estimate = spl.info.samplers[end].info.logevidence[end]
 
         Turing.DEBUG && @debug "computing accept rate α..."
@@ -137,7 +159,7 @@ function _sample(vi, samples, spl, model, alg::PMMH;
     PROGRESS[] && (spl.info.progress = ProgressMeter.Progress(n, 1, "[$alg_str] Sampling...", 0))
     for i = 1:n
         Turing.DEBUG && @debug "$alg_str stepping..."
-        time_elapsed = @elapsed vi, is_accept = step(model, spl, vi, i==1)
+        time_elapsed = @elapsed vi, is_accept = step(model, spl, vi)
 
         if is_accept # accepted => store the new predcits
             samples[i].value = Sample(vi, spl).value
@@ -148,7 +170,7 @@ function _sample(vi, samples, spl, model, alg::PMMH;
         time_total += time_elapsed
         push!(accept_his, is_accept)
         if PROGRESS[]
-            haskey(spl.info, :progress) && ProgressMeter.update!(spl.info.progress, spl.info.progress.counter + 1)
+            isdefined(spl.info, :progress) && ProgressMeter.update!(spl.info.progress, spl.info.progress.counter + 1)
         end
     end
 

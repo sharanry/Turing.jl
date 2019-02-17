@@ -38,6 +38,7 @@ function SMC(n_particles::Int, space...)
     F = typeof(resample_systematic)
     return SMC{space, F}(n_particles, resample_systematic, 0.5, 0)
 end
+SMC{Ts, Tf}(alg::SMC{Ts, Tf}, new_gid::Int) where {Ts, Tf} = SMC(alg, new_gid)
 function SMC(alg::SMC{space, F}, new_gid::Int) where {space, F}
     return SMC{space, F}(alg.n_particles, alg.resampler, alg.resampler_threshold, new_gid)
 end
@@ -51,6 +52,12 @@ getspace(::SMC{space}) where space = space
 function Sampler(alg::SMC)
     info = SMCInfo(Float64[])
     Sampler(alg, info)
+end
+
+function init_spl(model, alg::SMC)
+    vi = VarInfo(model)
+    spl = Sampler(alg)
+    return spl, vi
 end
 
 function step(model, spl::Sampler{<:SMC}, vi::AbstractVarInfo)
@@ -80,8 +87,7 @@ VarInfo(model::Model) = TypedVarInfo(default_varinfo(model))
 
 ## wrapper for smc: run the sampler, collect results.
 function sample(model::Model, alg::SMC)
-    spl = Sampler(alg)
-    vi = VarInfo(model)
+    spl, vi = init_spl(model, alg)
     particles = ParticleContainer{Trace{typeof(vi)}}(model)
     push!(particles, spl.alg.n_particles, spl, vi)
 
