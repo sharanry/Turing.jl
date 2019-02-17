@@ -36,11 +36,6 @@ mutable struct IS{space} <: InferenceAlgorithm
 end
 IS(n_particles) = IS{()}(n_particles)
 
-function Sampler(alg::IS)
-    info = Dict{Symbol, Any}()
-    return Sampler(alg, info)
-end
-
 function init_samples(alg::IS, sample::Tsample; kwargs...) where {Tsample <: Sample}
     return Array{Tsample}(undef, alg.n_particles)
 end

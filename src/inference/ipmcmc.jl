@@ -80,9 +80,7 @@ function Sampler(alg::IPMCMC)
     for i in (alg.n_csmc_nodes+1):alg.n_nodes
         samplers[i] = Sampler(SMC(default_SMC, i))
     end
-
-    info = Dict{Symbol, Any}()
-    info[:samplers] = Tuple(samplers)
+    info = GibbsInfo(Tuple(samplers))
 
     return Sampler(alg, info)
 end
@@ -95,7 +93,7 @@ function step(model, spl::Sampler{<:IPMCMC}, VarInfos::Array{VarInfo}, is_first:
     for j in 1:spl.alg.n_nodes
         VarInfos[j].num_produce = 0
         VarInfos[j] = step(model, spl.info.samplers[j], VarInfos[j])[1]
-        log_zs[j] = spl.info.samplers[j].info[:logevidence][end]
+        log_zs[j] = spl.info.samplers[j].info.logevidence[end]
     end
 
     # Resampling of CSMC nodes indices

@@ -2,7 +2,7 @@ module Inference
 
 using ..Core, ..Core.VarReplay, ..Utilities
 using Distributions, Libtask, Bijectors
-using ProgressMeter, LinearAlgebra
+using ProgressMeter, LinearAlgebra, Setfield
 using ..Turing: PROGRESS, CACHERESET, AbstractSampler
 using ..Turing: Sampler, Model, runmodel!, get_pvars, get_dvars
 using ..Turing: in_pvars, in_dvars, Turing

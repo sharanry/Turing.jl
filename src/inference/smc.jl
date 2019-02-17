@@ -42,11 +42,14 @@ function SMC(alg::SMC{space, F}, new_gid::Int) where {space, F}
     return SMC{space, F}(alg.n_particles, alg.resampler, alg.resampler_threshold, new_gid)
 end
 
+struct SMCInfo{Tlogevidence}
+    logevidence::Tlogevidence
+end
+
 getspace(::SMC{space}) where space = space
 
 function Sampler(alg::SMC)
-    info = Dict{Symbol, Any}()
-    info[:logevidence] = []
+    info = SMCInfo(Float64[])
     Sampler(alg, info)
 end
 

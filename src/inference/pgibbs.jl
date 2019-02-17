@@ -120,7 +120,7 @@ function _sample(vi, samples, spl, model, alg::PG;
     for i = 1:n
         time_elapsed = @elapsed vi, _ = step(model, spl, vi)
         push!(samples, Sample(vi))
-        samples[i].value.elapsed = time_elapsed
+        samples[i].info.elapsed = time_elapsed
 
         time_total += time_elapsed
 

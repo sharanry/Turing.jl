@@ -92,7 +92,7 @@ end
 g_demo_f = gdemo()
 g = Turing.Sampler(Gibbs(1000, PG(10, 2, :x, :y, :z), HMC(1, 0.4, 8, :w, :u)), g_demo_f)
 
-pg, hmc = g.info[:samplers]
+pg, hmc = g.info.samplers
 
 vi = Turing.VarInfo()
 g_demo_f(vi, nothing)
