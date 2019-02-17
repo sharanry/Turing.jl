@@ -42,7 +42,7 @@ function get_threephase_params(::Nothing)
     return init_buffer, term_buffer, window_size, next_window
 end
 
-function ThreePhaseAdapter(alg::AdaptiveHamiltonian, ϵ::Real, dim::Integer, adapt_conf)
+function ThreePhaseAdapter(spl::Sampler{<:AdaptiveHamiltonian}, ϵ::Real, dim::Integer, adapt_conf)
     # Diagonal pre-conditioner
     # pc = UnitPreConditioner()
     pc = DiagPreConditioner(dim)
@@ -52,7 +52,7 @@ function ThreePhaseAdapter(alg::AdaptiveHamiltonian, ϵ::Real, dim::Integer, ada
     # Window parameters
     init_buffer, term_buffer, window_size, next_window = get_threephase_params(adapt_conf)
     threephasestate = ThreePhaseState(0, window_size, next_window)
-    return ThreePhaseAdapter(alg.n_adapts, init_buffer, term_buffer, pc, ssa, threephasestate)
+    return ThreePhaseAdapter(spl.alg.n_adapts, init_buffer, term_buffer, pc, ssa, threephasestate)
 end
 
 # Ref: https://github.com/stan-dev/stan/blob/develop/src/stan/mcmc/windowed_adaptation.hpp

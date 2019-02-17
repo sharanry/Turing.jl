@@ -116,7 +116,7 @@ struct Chain{R<:AbstractRange{Int}} <: AbstractChains
 end
 
 function Chain()
-    return Chain{AbstractRange{Int}}( 0.0,
+    return Chain{StepRange{Int, Int}}( 0.0,
                                       Array{Float64, 3}(undef, 0, 0, 0),
                                       0:0,
                                       Vector{String}(),
@@ -125,8 +125,7 @@ function Chain()
                                     )
 end
 
-function Chain(w::Real, s::AbstractArray{Sample})
-
+function Chain(w::Real, s::AbstractArray{<:Sample})
     samples = flatten.(s)
     names_ = collect(mapreduce(s -> keys(s), union, samples))
 
@@ -142,7 +141,7 @@ function Chain(w::Real, s::AbstractArray{Sample})
                 c.chains,
                 Dict{Symbol, Any}()
                )
-    return chn
+    return chn::Chain{StepRange{Int, Int}}
 end
 
 # ind2sub is deprecated in Julia 1.0
@@ -150,7 +149,7 @@ ind2sub(v, i) = Tuple(CartesianIndices(v)[i])
 
 function flatten(s::Sample)
     vals  = Vector{Float64}()
-    names = Vector{AbstractString}()
+    names = Vector{String}()
     for f in fieldnames(typeof(s.value))
         if f !== :lp
             for (k, v) in getfield(s.value, f)

@@ -6,7 +6,7 @@ abstract type AbstractVarInfo end
 const VarInfo = AbstractVarInfo
 
 function Turing.runmodel!(model::Model, vi::AbstractVarInfo, spl::Union{Nothing,Sampler})
-    setlogp!(vi, zero(Real))
+    setlogp!(vi, zero(Float64))
     if spl != nothing && isdefined(spl.info, :eval_num)
         spl.info.eval_num += 1
     end

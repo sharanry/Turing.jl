@@ -204,7 +204,7 @@ function _hmc_step(θ::AbstractVector{<:Real},
         lj = lj_new
     end
 
-    return θ, lj, is_accept, τ_valid, exp(logα)
+    return θ, lj, is_accept::Bool, τ_valid, exp(logα)
 end
 
 function _hmc_step(θ::AbstractVector{<:Real},

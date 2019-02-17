@@ -354,11 +354,17 @@ function getidcs(vi::TypedVarInfo, spl::Sampler)
     if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
         spl.info.cache_updated = CACHERESET
     end
-    if isdefined(spl.info, :idcs) && (spl.info.cache_updated & CACHEIDCS) > 0
+    if isdefined(spl.info, :idcs) && isdefined(spl.info, :cache_updated) && (spl.info.cache_updated & CACHEIDCS) > 0
         spl.info.idcs
     else
-        spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
-        spl.info.idcs = _getidcs(vi, spl)
+        idcs = _getidcs(vi, spl)
+        if isdefined(spl.info, :cache_updated)
+            spl.info.cache_updated = spl.info.cache_updated | CACHEIDCS
+        end
+        if isdefined(spl.info, :idcs)
+            spl.info.idcs = idcs
+        end
+        idcs
     end
 end
 @generated function _getidcs(vi::TypedVarInfo{Tvis}, spl::Sampler) where Tvis
@@ -394,11 +400,17 @@ function getranges(vi::TypedVarInfo, spl::Sampler)
     if isdefined(spl.info, :cache_updated) && spl.info.cache_updated == 0x64
         spl.info.cache_updated = CACHERESET 
     end
-    if isdefined(spl.info, :ranges) && (spl.info.cache_updated & CACHERANGES) > 0
+    if isdefined(spl.info, :ranges) && isdefined(spl.info, :cache_updated) && (spl.info.cache_updated & CACHERANGES) > 0
         spl.info.ranges
     else
-        spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
-        spl.info.ranges = _getranges(vi, spl, idcs)
+        ranges = _getranges(vi, spl, idcs)
+        if isdefined(spl.info, :cache_updated)
+            spl.info.cache_updated = spl.info.cache_updated | CACHERANGES
+        end
+        if isdefined(spl.info, :ranges)
+            spl.info.ranges = ranges
+        end
+        ranges
     end
 end
 @generated function _getranges(vi::TypedVarInfo{Tvis}, spl::Sampler, idcs) where Tvis

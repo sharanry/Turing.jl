@@ -76,12 +76,10 @@ end
 
 function step(model, spl::Sampler{<:SGLD}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
-
-    spl.info.wum = NaiveCompAdapter(UnitPreConditioner(), ManualSSAdapter(MSSState(spl.alg.epsilon)))
+    spl.info.wum = init_adapter(spl.alg)
 
     # Initialize iteration counter
     spl.info.t = 0
-
     spl.alg.gid != 0 && invlink!(vi, spl)
     return vi, true
 end

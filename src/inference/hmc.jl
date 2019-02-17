@@ -71,11 +71,12 @@ end
 DEFAULT_ADAPT_CONF_TYPE = Nothing
 STAN_DEFAULT_ADAPT_CONF = nothing
 
-Sampler(alg::HMC, vi::AbstractVarInfo) = Sampler(alg, vi, nothing, 0)
-function Sampler(alg::HMC, vi::AbstractVarInfo, adapt_conf, eval_num)
-    idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
-    ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
-    info = HMCInfo(alg, adapt_conf, idcs, ranges, eval_num)
+#Sampler(model, alg::Union{HMC, HMCDA}, vi::AbstractVarInfo) = Sampler(model, alg, vi, nothing, 0)
+function Sampler(model, alg::Union{HMC, HMCDA}, vi::AbstractVarInfo, adapt_conf, eval_num)
+    spl = Sampler(alg, nothing)
+    idcs = VarReplay._getidcs(vi, spl)
+    ranges = VarReplay._getranges(vi, spl, idcs)
+    info = HMCInfo(model, spl, vi, adapt_conf, idcs, ranges, eval_num)
     return Sampler(alg, info)
 end
 
@@ -89,8 +90,9 @@ mutable struct HMCInfo{Tidcs, Tranges, Tconf, Twum}
     wum::Twum
     lf_num::Int
 end
-function HMCInfo(alg, adapt_conf, idcs, ranges, eval_num)
-    wum = init_adapter(alg, adapt_conf)
+function HMCInfo(model, spl, vi, adapt_conf, idcs, ranges, eval_num)
+    alg = spl.alg
+    wum = init_adapter(model, spl, vi, adapt_conf)
     return HMCInfo( idcs, 
                     CACHERESET, 
                     ranges, 
@@ -109,7 +111,7 @@ function hmc_step(θ, lj, lj_func, grad_func, H_func, ϵ, alg::HMC, momentum_sam
     return θ_new, lj_new, is_accept, α
 end
 
-function init_spl(model, alg::HMC; 
+function init_spl(model, alg::Union{HMC, HMCDA}; 
                             reuse_spl_n = 0, 
                             resume_from = nothing, 
                             adapt_conf=STAN_DEFAULT_ADAPT_CONF, 
@@ -126,7 +128,7 @@ function init_spl(model, alg::HMC;
     if reuse_spl_n > 0
         spl = resume_from.info.spl
     else
-        spl = Sampler(alg, vi, adapt_conf, eval_num)
+        spl = Sampler(model, alg, vi, adapt_conf, eval_num)
     end
     @assert isa(spl.alg, Hamiltonian) "[Turing] alg type mismatch; please use resume() to re-use spl"
 
@@ -144,6 +146,30 @@ function init_varinfo(model, spl::Sampler{<:Hamiltonian}; resume_from = nothing,
     else
         return deepcopy(resume_from.info.vi)
     end
+end
+
+macro loop_iter(i)
+    return esc(quote
+        Turing.DEBUG && @debug "$alg_str stepping..."
+
+        time_elapsed = @elapsed vi, is_accept = step(model, spl, vi, Val($(i == 1)))
+        time_total += time_elapsed
+
+        if is_accept # accepted => store the new predcits
+            samples[$i].value = Sample(vi, spl).value
+        else         # rejected => store the previous predcits
+            samples[$i] = samples[$i - 1]
+        end
+        samples[$i].info.elapsed = time_elapsed
+        if isdefined(spl.info, :wum)
+            samples[$i].info.lf_eps = getss(spl.info.wum)
+        end
+
+        total_lf_num += spl.info.lf_num
+        total_eval_num += spl.info.eval_num
+        push!(accept_his, is_accept)
+        PROGRESS[] && ProgressMeter.next!(spl.info.progress)
+    end)
 end
 
 function _sample(vi, samples, spl, model, alg::Hamiltonian,
@@ -178,26 +204,9 @@ function _sample(vi, samples, spl, model, alg::Hamiltonian,
     accept_his = Bool[]
     n = length(samples)
     PROGRESS[] && (spl.info.progress = ProgressMeter.Progress(n, 1, "[$alg_str] Sampling...", 0))
-    for i = 1:n
-        Turing.DEBUG && @debug "$alg_str stepping..."
-
-        time_elapsed = @elapsed vi, is_accept = step(model, spl, vi, Val(i == 1))
-        time_total += time_elapsed
-
-        if is_accept # accepted => store the new predcits
-            samples[i].value = Sample(vi, spl).value
-        else         # rejected => store the previous predcits
-            samples[i] = samples[i - 1]
-        end
-        samples[i].info.elapsed = time_elapsed
-        if isdefined(spl.info, :wum)
-            samples[i].info.lf_eps = getss(spl.info.wum)
-        end
-
-        total_lf_num += spl.info.lf_num
-        total_eval_num += spl.info.eval_num
-        push!(accept_his, is_accept)
-        PROGRESS[] && ProgressMeter.next!(spl.info.progress)
+    @loop_iter(1)
+    for i = 2:n
+        @loop_iter(i)
     end
 
     println("[$alg_str] Finished with")
@@ -235,21 +244,19 @@ function step(model, spl::Sampler{<:StaticHamiltonian}, vi::AbstractVarInfo, is_
     return vi, true
 end
 
-function init_adapter(alg::StaticHamiltonian, adapt_conf=nothing)
-    return NaiveCompAdapter(UnitPreConditioner(), FixedStepSize(alg.epsilon))
+function init_adapter(model, spl::Sampler{<:StaticHamiltonian}, vi, adapt_conf=nothing)
+    return NaiveCompAdapter(UnitPreConditioner(), FixedStepSize(spl.alg.epsilon))
 end
 
-function init_adapter(alg::AdaptiveHamiltonian, adapt_conf)
+function init_adapter(model, spl::Sampler{<:AdaptiveHamiltonian}, vi, adapt_conf)
     epsilon = find_good_eps(model, spl, vi) # heuristically find good initial epsilon
     dim = length(vi[spl])
-    return ThreePhaseAdapter(alg, epsilon, dim, adapt_conf)
+    return ThreePhaseAdapter(spl, epsilon, dim, adapt_conf)
 end
 
 function step(model, spl::Sampler{<:AdaptiveHamiltonian}, vi::AbstractVarInfo, is_first::Val{true})
     spl.alg.gid != 0 && link!(vi, spl)
-    epsilon = find_good_eps(model, spl, vi) # heuristically find good initial epsilon
-    dim = length(vi[spl])
-    spl.info.wum = ThreePhaseAdapter(alg, epsilon, dim)
+    spl.info.wum = init_adapter(model, spl, vi, spl.info.adapt_conf)
     spl.alg.gid != 0 && invlink!(vi, spl)
     return vi, true
 end
