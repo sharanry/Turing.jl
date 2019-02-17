@@ -67,25 +67,35 @@ function IPMCMC(alg::IPMCMC, new_gid::Int)
     return IPMCMC{S, F}(n_particles, n_iters, n_nodes, n_csmc_nodes, resampler, new_gid)
 end
 
+mutable struct IPMCMCInfo{Tsamplers}
+    samplers::Tsamplers
+    progress::ProgressMeter.Progress
+end
+function IPMCMCInfo(samplers, alg::IPMCMC)
+    progress = ProgressMeter.Progress(alg.n_iters, 1, "[IPMCMC] Sampling...", 0)
+    return IPMCMCInfo(samplers, progress)
+end
+
 function Sampler(alg::IPMCMC)
     # Create SMC and CSMC nodes
-    samplers = Array{Sampler}(undef, alg.n_nodes)
     # Use resampler_threshold=1.0 for SMC since adaptive resampling is invalid in this setting
     default_CSMC = CSMC(alg.n_particles, 1, alg.resampler, getspace(alg), 0)
     default_SMC = SMC(alg.n_particles, alg.resampler, 1.0, false, getspace(alg), 0)
 
-    for i in 1:alg.n_csmc_nodes
-        samplers[i] = Sampler(CSMC(default_CSMC, i))
-    end
-    for i in (alg.n_csmc_nodes+1):alg.n_nodes
-        samplers[i] = Sampler(SMC(default_SMC, i))
-    end
-    info = GibbsInfo(Tuple(samplers))
+    samplers1 = Tuple([Sampler(CSMC(default_CSMC, i)) for i in 1:alg.n_csmc_nodes])
+    samplers2 = Tuple([Sampler(SMC(default_SMC, i)) for i in (alg.n_csmc_nodes+1):alg.n_nodes])
+    info = IPMCMCInfo((samplers1..., samplers2...), alg)
 
     return Sampler(alg, info)
 end
 
-function step(model, spl::Sampler{<:IPMCMC}, VarInfos::Array{VarInfo}, is_first::Bool)
+function init_spl(model, alg::IPMCMC; kwargs...)
+    spl = Sampler(alg)
+    vi = [VarInfo(model) for i in 1:alg.n_nodes]
+    return spl, vi
+end
+
+function step(model, spl::Sampler{<:IPMCMC}, VarInfos::Array{<:VarInfo}, is_first::Bool)
     # Initialise array for marginal likelihood estimators
     log_zs = zeros(spl.alg.n_nodes)
 
@@ -116,14 +126,6 @@ function step(model, spl::Sampler{<:IPMCMC}, VarInfos::Array{VarInfo}, is_first:
 end
 
 get_sample_n(alg::IPMCMC; kwargs...) = alg.n_iters * alg.n_csmc_nodes
-
-function init_varinfo(model, spl::Sampler{<:IPMCMC}; kwargs...)
-    VarInfos = Array{VarInfo}(undef, spl.alg.n_nodes)
-    for j in 1:spl.alg.n_nodes
-        VarInfos[j] = VarInfo()
-    end
-    return VarInfos
-end
 
 function _sample(VarInfos, samples, spl, model, alg::IPMCMC)
     # Init samples

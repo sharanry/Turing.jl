@@ -57,9 +57,16 @@ end
 
 using InteractiveUtils
 
+function init_samples(alg, vi::AbstractArray{<:AbstractVarInfo}; kwargs...)
+    return init_samples(alg, first(vi); kwargs...)
+end
+function init_samples(alg, vi::AbstractVarInfo; kwargs...)
+    return init_samples(alg, Sample(vi); kwargs...)
+end
+
 function sample(model, alg; kwargs...)
     spl, vi = init_spl(model, alg; kwargs...)
-    samples = init_samples(alg, Sample(vi); kwargs...)
+    samples = init_samples(alg, vi; kwargs...)
     #@code_warntype _sample(vi, samples, spl, model, alg, CHUNKSIZE[], false, nothing, 0, STAN_DEFAULT_ADAPT_CONF)
     _sample(vi, samples, spl, model, alg)
 end

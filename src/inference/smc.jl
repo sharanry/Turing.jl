@@ -54,7 +54,7 @@ function Sampler(alg::SMC)
 end
 
 function step(model, spl::Sampler{<:SMC}, vi::AbstractVarInfo)
-    particles = ParticleContainer{typeof(vi)}(model)
+    particles = ParticleContainer{Trace{typeof(vi)}}(model)
     vi.num_produce = 0;  # Reset num_produce before new sweep\.
     set_retained_vns_del_by_spl!(vi, spl)
     resetlogp!(vi)
