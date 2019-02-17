@@ -61,7 +61,7 @@ mutable struct SGHMCInfo{Tv, Tidcs, Tranges}
 end
 
 function init_spl(model, alg::SGHMC; kwargs...)
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
     ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
     progress = ProgressMeter.Progress(alg.n_iters, 1, "[SGHMC] Sampling...", 0)

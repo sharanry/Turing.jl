@@ -95,7 +95,7 @@ function init_spl(model, alg::MH; kwargs...)
     if alg.gid == 0 && !isempty(getspace(alg))
         verifyspace(getspace(alg), model.pvars, alg_str)
     end
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     spl = Sampler(alg, vi)
     return spl, vi
 end

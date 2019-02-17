@@ -57,7 +57,7 @@ function Sampler(alg::PG)
     Sampler(alg, info)
 end
 function init_spl(model, alg::PG; kwargs...)
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     spl = Sampler(alg)
     return spl, vi
 end

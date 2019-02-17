@@ -42,8 +42,8 @@ function SMC(alg::SMC{space, F}, new_gid::Int) where {space, F}
     return SMC{space, F}(alg.n_particles, alg.resampler, alg.resampler_threshold, new_gid)
 end
 
-struct SMCInfo{Tlogevidence}
-    logevidence::Tlogevidence
+struct SMCInfo
+    logevidence::Vector{Float64}
 end
 
 getspace(::SMC{space}) where space = space
@@ -53,8 +53,8 @@ function Sampler(alg::SMC)
     Sampler(alg, info)
 end
 
-function step(model, spl::Sampler{<:SMC}, vi::VarInfo)
-    particles = ParticleContainer{Trace}(model)
+function step(model, spl::Sampler{<:SMC}, vi::AbstractVarInfo)
+    particles = ParticleContainer{typeof(vi)}(model)
     vi.num_produce = 0;  # Reset num_produce before new sweep\.
     set_retained_vns_del_by_spl!(vi, spl)
     resetlogp!(vi)
@@ -76,12 +76,14 @@ function step(model, spl::Sampler{<:SMC}, vi::VarInfo)
     return particles[indx].vi, true
 end
 
+VarInfo(model::Model) = TypedVarInfo(default_varinfo(model))
+
 ## wrapper for smc: run the sampler, collect results.
 function sample(model::Model, alg::SMC)
     spl = Sampler(alg)
-
-    particles = ParticleContainer{Trace}(model)
-    push!(particles, spl.alg.n_particles, spl, VarInfo())
+    vi = VarInfo(model)
+    particles = ParticleContainer{Trace{typeof(vi)}}(model)
+    push!(particles, spl.alg.n_particles, spl, vi)
 
     while consume(particles) != Val{:done}
         ess = effectiveSampleSize(particles)

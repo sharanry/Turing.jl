@@ -41,7 +41,7 @@ function init_samples(alg::IS, sample::Tsample; kwargs...) where {Tsample <: Sam
 end
 
 function init_spl(model, alg::IS; stable = true, kwargs...)
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     spl = Sampler(alg, nothing)
     return spl, vi
 end

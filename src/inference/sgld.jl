@@ -63,12 +63,12 @@ end
 
 function init_spl(model, alg::SGLD; kwargs...)
     wum = init_adapter(alg)
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     idcs = VarReplay._getidcs(vi, Sampler(alg, nothing))
     ranges = VarReplay._getranges(vi, Sampler(alg, nothing), idcs)
     progress = ProgressMeter.Progress(alg.n_iters, 1, "[SGLD] Sampling...", 0)
 
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     info = SGLDInfo(0, wum, CACHERESET, idcs, ranges, progress, 0, 1)
     spl = Sampler(alg, info)
     return spl, vi

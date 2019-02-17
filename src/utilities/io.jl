@@ -12,8 +12,9 @@ mutable struct SampleInfo
     epsilon::Float64
     eval_num::Int
     lf_eps::Float64
+    le::Float64
 end
-SampleInfo() = SampleInfo(0, NaN, NaN, 0, NaN)
+SampleInfo() = SampleInfo(0, NaN, NaN, 0, NaN, NaN)
 
 mutable struct Sample{Tvalue}
     weight :: Float64     # particle weight

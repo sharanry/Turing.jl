@@ -67,7 +67,7 @@ function init_spl(model, alg::Gibbs; kwargs...)
     n_samplers = length(alg.algs)
     alg_str = "Gibbs"
     samplers, vis = get_gibbs_samplers(alg.algs, model, n_samplers, alg, alg_str)
-    vi = TypedVarInfo(default_varinfo(model))
+    vi = VarInfo(model)
     space = buildspace(alg.algs)
     verifyspace(space, model.pvars, alg_str)
     info = GibbsInfo(alg, samplers)

@@ -2,16 +2,16 @@ mutable struct Trace{VI <: AbstractVarInfo}
     task  ::  Task
     vi    ::  VI
     spl   ::  Union{Nothing, Sampler}
-    function Trace(vi::AbstractVarInfo = VarInfo())
+    function Trace(vi::AbstractVarInfo)
         res = new{typeof(vi)}()
         res.vi = vi
         res.spl = nothing
         return res
     end
 end
-
+Trace{Tvi}(args...) where Tvi = Trace(args...)
 # NOTE: this function is called by `forkr`
-function Trace(f, vi = VarInfo())
+function Trace(f, vi::AbstractVarInfo = VarInfo(f))
     res = Trace(deepcopy(vi));
     # CTask(()->f());
     res.task = CTask( () -> begin res=f(); produce(Val{:done}); res; end )
@@ -21,8 +21,7 @@ function Trace(f, vi = VarInfo())
     res.task.storage[:turing_trace] = res # create a backward reference in task_local_storage
     return res
 end
-
-function Trace(f, spl::Sampler, vi :: AbstractVarInfo)
+function Trace(f, spl::Sampler, vi::AbstractVarInfo)
     res = Trace(deepcopy(vi));
     res.spl = spl
     # CTask(()->f());
@@ -240,9 +239,9 @@ end
 # ParticleContainer: particles ==> (weight, results)
 function getsample(pc :: ParticleContainer, i :: Int, w :: Float64 = 0.)
     p = pc.vals[i]
-    predicts = Sample(p.vi).value
-    predicts.le = pc.logE
-    return Sample(w, predicts)
+    sample = Sample(p.vi)
+    sample.info.le = pc.logE
+    return Sample(w, sample.info, sample.value)
 end
 
 function getsample(pc :: ParticleContainer)

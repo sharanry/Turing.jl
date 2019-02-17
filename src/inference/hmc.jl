@@ -120,7 +120,7 @@ function init_spl(model, alg::Hamiltonian;
 
     if resume_from == nothing
         eval_num = 1
-        vi = TypedVarInfo(default_varinfo(model))
+        vi = VarInfo(model)
     else
         vi = deepcopy(resume_from.info.vi)
     end
@@ -142,7 +142,7 @@ end
 function init_varinfo(model, spl::Sampler{<:Hamiltonian}; resume_from = nothing, kwargs...)
     if resume_from == nothing
         spl.info.eval_num += 1
-        return TypedVarInfo(default_varinfo(model))
+        return VarInfo(model)
     else
         return deepcopy(resume_from.info.vi)
     end
