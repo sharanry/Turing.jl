@@ -72,15 +72,15 @@ DEFAULT_ADAPT_CONF_TYPE = Nothing
 STAN_DEFAULT_ADAPT_CONF = nothing
 
 #Sampler(model, alg::Union{HMC, HMCDA}, vi::AbstractVarInfo) = Sampler(model, alg, vi, nothing, 0)
-function Sampler(model, alg::Union{HMC, HMCDA}, vi::AbstractVarInfo, adapt_conf, eval_num)
+function Sampler(model, alg::Hamiltonian, vi::AbstractVarInfo, adapt_conf, eval_num)
     spl = Sampler(alg, nothing)
     idcs = VarReplay._getidcs(vi, spl)
     ranges = VarReplay._getranges(vi, spl, idcs)
-    info = HMCInfo(model, spl, vi, adapt_conf, idcs, ranges, eval_num)
+    info = HamiltonianInfo(model, spl, vi, adapt_conf, idcs, ranges, eval_num)
     return Sampler(alg, info)
 end
 
-mutable struct HMCInfo{Tidcs, Tranges, Tconf, Twum}
+mutable struct HamiltonianInfo{Tidcs, Tranges, Tconf, Twum}
     idcs::Tidcs
     cache_updated::UInt8
     ranges::Tranges
@@ -90,10 +90,10 @@ mutable struct HMCInfo{Tidcs, Tranges, Tconf, Twum}
     wum::Twum
     lf_num::Int
 end
-function HMCInfo(model, spl, vi, adapt_conf, idcs, ranges, eval_num)
+function HamiltonianInfo(model, spl, vi, adapt_conf, idcs, ranges, eval_num)
     alg = spl.alg
     wum = init_adapter(model, spl, vi, adapt_conf)
-    return HMCInfo( idcs, 
+    return HamiltonianInfo( idcs, 
                     CACHERESET, 
                     ranges, 
                     eval_num, 
@@ -111,7 +111,7 @@ function hmc_step(θ, lj, lj_func, grad_func, H_func, ϵ, alg::HMC, momentum_sam
     return θ_new, lj_new, is_accept, α
 end
 
-function init_spl(model, alg::Union{HMC, HMCDA}; 
+function init_spl(model, alg::Hamiltonian; 
                             reuse_spl_n = 0, 
                             resume_from = nothing, 
                             adapt_conf=STAN_DEFAULT_ADAPT_CONF, 
